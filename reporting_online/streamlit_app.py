@@ -87,6 +87,12 @@ with import_tab:
         with st.expander('Échantillon original',expanded=False):st.dataframe(pd.DataFrame(sheet['sample']),hide_index=True)
         key=src_id+'_'+hashlib.sha256(sheet_name.encode()).hexdigest()[:8]+f'_{ws.revision}'
         grains={'orders':'Commande','items':'Lignes articles','daily':'Jour','weekly':'Semaine','period':'Intervalle','registry':'Référentiel','complement':'Complément financier'}
+        if sheet.get('profile')=='admin_earnings':
+            from admin_earnings import FORMULAS
+            st.success('Format Admin Earnings reconnu : dates, montants et KPI calculés automatiquement.')
+            with st.expander('Formules et données calculées',expanded=True):
+                st.dataframe(pd.DataFrame([{'KPI':k,'Calcul':v} for k,v in FORMULAS.items()]),hide_index=True,width='stretch')
+                st.caption('Nouveaux clients : historique initial nécessaire. Produits et catégories : lignes articles avec quantités nécessaires. Les valeurs sans données suffisantes restent N/D.')
         with st.form('mapping_'+key):
             c1,c2,c3=st.columns(3)
             enabled=c1.checkbox('Importer cette feuille',value=sheet.get('enabled',True))
@@ -101,9 +107,12 @@ with import_tab:
             with st.expander('Mapping des colonnes',expanded=False):
                 mapping={};cols=st.columns(3)
                 for i,field in enumerate(FIELDS):
-                    options=['Non disponible',*sheet['columns']];existing=sheet.get('mapping',{}).get(field)
+                    from admin_earnings import FORMULAS
+                    automatic=grain=='orders' and (field in ('requests','delivered','cancelled','users','delivered_users','repeat_users') or (sheet.get('profile')=='admin_earnings' and field in FORMULAS))
+                    empty='Calculé automatiquement' if automatic else 'Non disponible'
+                    options=[empty,*sheet['columns']];existing=sheet.get('mapping',{}).get(field)
                     value=cols[i%3].selectbox(field,options,index=options.index(existing) if existing in options else 0,key='map_'+key+field)
-                    if value!='Non disponible':mapping[field]=value
+                    if value!=empty:mapping[field]=value
             applied=st.form_submit_button('Appliquer le mapping et les dates',type='primary')
         if applied:
             if complete and (not start or not end or start>end):st.error('Certification : saisir un intervalle valide.')

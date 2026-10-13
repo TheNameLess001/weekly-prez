@@ -30,7 +30,7 @@ class Workspace:
             if child.is_dir():shutil.rmtree(child)
             else:child.unlink()
     def rebuild(self):
-        self.dataset=ingest(self.sources,self.settings);self.revision+=1;self.results=[]
+        self.dataset=ingest(self.sources,self.settings);self.settings=self.dataset.settings;self.revision+=1;self.results=[]
     def add_uploads(self,files):
         incoming=[];errors=[]
         total=sum(Path(s['path']).stat().st_size for s in self.sources if Path(s['path']).is_file())
@@ -52,7 +52,7 @@ class Workspace:
                     old=next((x for x in saved.get('sheets',[]) if x.get('sheet')==sh['sheet']),None)
                     if old:
                         valid={k:v for k,v in old.get('mapping',{}).items() if k in FIELDS and v in sh['columns']}
-                        sh['mapping'].update(valid);sh['grain']=old.get('grain',sh['grain'])
+                        sh['mapping'].update(valid);sh['grain']='orders' if sh.get('profile')=='admin_earnings' and old.get('grain')=='registry' else old.get('grain',sh['grain'])
                         if saved.get('digest')==digest:
                             for key in ('complete','coverage_start','coverage_end','all_partners','year','date_dayfirst','enabled'):sh[key]=old.get(key,sh.get(key))
             incoming.append({'id':ident,'name':clean,'digest':digest,'path':str(path),'sheets':sheets,'demo':any(sh.get('demo') for sh in sheets)})

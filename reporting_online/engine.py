@@ -19,17 +19,17 @@ ALIASES = {
  'restaurant_id': ['restaurant id','rst id','id restaurant','store id','partner id','merchant id'],
  'restaurant_name': ['restaurant name','restaurant','nom restaurant','store name','partner name'],
  'city': ['city','ville'], 'brand': ['brand','enseigne','chain'],
- 'order_id': ['order id','id commande','request id'], 'user_id': ['user id','customer id','id client'],
- 'date': ['date','created at','order date','date commande','day','jour'],
+ 'order_id': ['order id','id commande','request id'], 'user_id': ['user id','customer id','id client','customer phone'],
+ 'date': ['date','created at','order date','date commande','day','jour','order day'],
  'start': ['period start','start date','date debut','week start'],
  'end': ['period end','end date','date fin','week end'],
  'status': ['status','statut','order status'],
  'requests': ['requests','received','commandes recues','recu'],
  'delivered': ['delivered orders','delivered','commandes livrees','livre'],
- 'gmv': ['gmv','gmv delivered','gmv livre'], 'ca': ['ca','revenue yassir','yassir revenue'],
- 'commission': ['commission','commissions'], 'commission_base': ['commission base','base commission'],
+ 'gmv': ['gmv','gmv delivered','gmv livre','item total'], 'ca': ['ca','revenue yassir','yassir revenue'],
+ 'commission': ['commission','commissions','restaurant commission'], 'commission_base': ['commission base','base commission'],
  'promo': ['promo cost','promotion cost','cout promotions','promo'],
- 'benefit': ['benefit','contribution'], 'users': ['unique users','users','utilisateurs uniques'],
+ 'benefit': ['benefit','contribution','final earnings'], 'users': ['unique users','users','utilisateurs uniques'],
  'delivered_users': ['delivered users','utilisateurs livres'],
  'new_users': ['new users','nouveaux utilisateurs'], 'is_new': ['is new','new customer'],
  'user_first_date': ['user first date','first order date','date premiere commande'],
@@ -38,13 +38,13 @@ ALIASES = {
  'cancel_restaurant': ['cancel restaurant','canc resto','annulations restaurant'],
  'cancel_driver': ['cancel driver','canc livreur','annulations livreur'],
  'cancel_client': ['cancel client','canc client','annulations client'],
- 'cancel_actor': ['cancel actor','cancellation actor','annulation acteur'],
- 'cancel_reason': ['cancel reason','cancellation reason','motif annulation'],
+ 'cancel_actor': ['cancel actor','cancellation actor','annulation acteur','cancelled by'],
+ 'cancel_reason': ['cancel reason','cancellation reason','motif annulation','cancellation reason'],
  'accept_min': ['accept min','acceptance minutes','temps acceptation'],
  'prep_min': ['prep min','preparation minutes','temps preparation'],
  'wait_min': ['wait min','driver wait minutes','attente livreur'],
  'travel_min': ['travel min','travel minutes','temps trajet'],
- 'ctd_min': ['ctd min','click to door','delivery minutes','temps livraison'],
+ 'ctd_min': ['ctd min','click to door','delivery minutes','temps livraison','delivery time(M)'],
  'sla_met': ['sla met','on time','livraison a heure'], 'sla_n': ['sla n','sla orders'],
  'available_hours': ['available hours','heures disponibles'],
  'scheduled_hours': ['scheduled hours','heures prevues'],
@@ -105,12 +105,15 @@ def inspect_file(path):
         for c in cols:
             if norm(c) in ALIAS_LOOKUP and ALIAS_LOOKUP[norm(c)] not in mapping:
                 mapping[ALIAS_LOOKUP[norm(c)]]=c
+        from admin_earnings import is_admin
+        admin=is_admin(cols,norm)
+        if admin and 'gmv' in mapping:mapping['commission_base']=mapping['gmv']
         grain='orders' if 'order_id' in mapping else ('weekly' if re.search(r'(?:week|w)\s*\d{1,2}',p.stem,re.I) else 'daily')
-        if 'date' not in mapping and 'start' not in mapping and 'requests' not in mapping: grain='registry'
+        if 'date' not in mapping and 'start' not in mapping and 'requests' not in mapping and 'order_id' not in mapping: grain='registry'
         if ('product_id' in mapping or 'product_name' in mapping) and ('quantity' in mapping or 'line_gmv' in mapping): grain='items'
         demo=any(norm(c) in ('is_demo','demo_fictif') and any(str(v).strip().lower() in ('1','true','fictif','demo') for v in df[c].dropna()) for c in cols)
         out.append({'sheet':sheet,'columns':cols,'rows':len(df),'sample':df.head(4).astype(object).where(pd.notna(df.head(4)), '').astype(str).to_dict('records'),
-                    'mapping':mapping,'grain':grain,'enabled':True,'complete':False,
+                    'mapping':mapping,'profile':'admin_earnings' if admin else None,'grain':grain,'enabled':True,'complete':False,
                     'coverage_start':'','coverage_end':'','year':2026,'date_dayfirst':True,'demo':demo})
     return out
 
@@ -142,7 +145,16 @@ def ingest(sources,settings=None):
             ds.demo=ds.demo or auto.get('demo',False)
             cfg=next((c for c in src.get('sheets',[]) if c['sheet']==auto['sheet']),auto)
             if not cfg.get('enabled',True): continue
+            if auto.get('profile')=='admin_earnings' and not cfg.get('profile'):
+                cfg['mapping']={**auto['mapping'],**cfg.get('mapping',{})}
+                cfg['profile']='admin_earnings'
+                if cfg.get('grain')=='registry':cfg['grain']='orders'
             sh=cfg['sheet']; grain=cfg.get('grain',auto['grain']); mp=cfg.get('mapping',auto['mapping'])
+            admin=auto.get('profile')=='admin_earnings' and grain=='orders'
+            if admin:
+                from admin_earnings import DEFINITIONS
+                for key,value in DEFINITIONS.items():
+                    if not ds.settings.get(key):ds.settings[key]=value
             df=frames[sh]; label=f'{path.name} / {sh}'
             ds.quality.append({'type':'import','source':label,'detail':f'{len(df)} lignes, {grain}, {len(mp)} champs reconnus'})
             missing=[c for c in mp.values() if c not in df.columns]
@@ -169,6 +181,9 @@ def ingest(sources,settings=None):
                         r[k]=number(v)
                         if r[k] is None and not pd.isna(v) and str(v).strip():
                             ds.quality.append({'type':'valeur invalide','source':label,'detail':f'L{idx+2} {k}: {v}'})
+                if admin:
+                    from admin_earnings import derive
+                    derive(record,r,norm,number)
                 rid=r.get('restaurant_id')
                 if not rid:
                     key=f"{norm(r.get('restaurant_name',''))}|{norm(r.get('city',''))}"
@@ -204,7 +219,7 @@ def ingest(sources,settings=None):
                     ds.quality.append({'type':'dates invalides','source':label,'detail':f'L{idx+2} exclue'}); continue
                 if cover and not (cs<=r['start'] and r['end']<=ce):
                     ds.quality.append({'type':'hors couverture déclarée','source':label,'detail':f'L{idx+2} exclue'}); continue
-                bad=[k for k,v in r.items() if k in FIELDS and k not in STRINGS|DATES|{'benefit'} and v is not None and v<0]
+                bad=[k for k,v in r.items() if k in FIELDS and k not in STRINGS|DATES|{'benefit','ca'} and v is not None and v<0]
                 if bad or (r.get('requests') is not None and r.get('delivered') is not None and r['delivered']>r['requests']):
                     ds.quality.append({'type':'anomalie quantitative','source':label,'detail':f'L{idx+2} exclue : {bad or "Delivered > Requests"}'}); continue
                 if key in quarantined: continue
@@ -298,7 +313,7 @@ def known_status(r,settings):
     v=norm(r.get('status',''))
     custom=settings.get('statuses',{})
     if v in [norm(s) for s in custom.get('delivered',['delivered','livre','completed'])]: return 'delivered'
-    if v in [norm(s) for s in custom.get('cancelled',['cancelled','canceled','annule','rejected'])]: return 'cancelled'
+    if v in [norm(s) for s in custom.get('cancelled',['cancelled','canceled','annule','rejected','cancelled by user','cancelled by admin','restaurant rejected','cancelled by restaurant','cancelled by driver','cancelled by customer'])]: return 'cancelled'
     if v in [norm(s) for s in custom.get('other',['pending','accepted','preparing','ready','requested','en_cours'])]: return 'other'
     return None
 

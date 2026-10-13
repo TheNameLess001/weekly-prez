@@ -36,6 +36,22 @@ class StreamlitTests(unittest.TestCase):
             at.button(key='clear_session').click().run()
             self.assertEqual(len(at.exception),0)
             self.assertFalse(any(x.label=='Périodes disponibles' for x in at.selectbox))
+    def test_admin_upload_displays_calculated_fields(self):
+        from test_admin_earnings import AdminTests
+        import pandas as pd
+        with patch.dict(os.environ,{'APP_PASSWORD':'faux-secret-test-import'}):
+            at=self.app().run();at.text_input(key='login_password').set_value('faux-secret-test-import');at.button[0].click().run()
+            raw=pd.DataFrame([AdminTests().fixture()]).to_csv(index=False).encode()
+            at.file_uploader(key='data_upload').set_value([('admin.csv',raw,'text/csv')]).run()
+            at.button(key='import_files').click().run()
+            self.assertEqual(len(at.exception),0)
+            self.assertTrue(any('Admin Earnings reconnu' in x.value for x in at.success))
+            requests=next(x for x in at.selectbox if x.label=='requests')
+            self.assertEqual(requests.value,'Calculé automatiquement')
+            ds=at.session_state['workspace'].dataset
+            self.assertEqual(ds.rows[0]['gmv'],100)
+            self.assertEqual(ds.rows[0]['ca'],31)
+            self.assertEqual(len(ds.items),0)
     def test_password_gate(self):
         with patch.dict(os.environ,{'APP_PASSWORD':'exemple-test-long-été'}):
             at=self.app().run();self.assertEqual(len(at.exception),0)
