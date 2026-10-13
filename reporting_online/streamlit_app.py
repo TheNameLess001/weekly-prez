@@ -13,6 +13,7 @@ import streamlit as st
 from engine import FIELDS,day,periods,compare,fmt,dumps
 from deck import pdf_converter
 from online_workspace import Workspace,DEFINITION_KEYS,THEME_COLORS
+from date_availability import available_bounds,available_comparisons,default_custom
 
 st.set_page_config(page_title='Yassir Performance Studio',page_icon='📊',layout='wide')
 st.markdown('''<style>
@@ -75,6 +76,8 @@ with import_tab:
         with st.spinner('Inspection et consolidation…'):errors,n=ws.add_uploads([(f.name,f.getvalue()) for f in uploaded])
         for error in errors:st.error(error)
         if n:st.success(f'{n} fichier(s) ajouté(s). Vérifiez le mapping et les dates.')
+    bounds=available_bounds(ws.dataset)
+    if bounds:st.success(f'Plage détectée dans les données : {bounds[0]:%d/%m/%Y} → {bounds[1]:%d/%m/%Y}')
     if ws.sources:
         src_id=st.selectbox('Source à configurer',[s['id'] for s in ws.sources],format_func=lambda v:next(s['name'] for s in ws.sources if s['id']==v),key='source_selector')
         src=next(s for s in ws.sources if s['id']==src_id)
@@ -145,19 +148,44 @@ with selection_tab:
 with preview_tab:
     st.subheader('Comparaison des périodes')
     modes={'WoW · dernière semaine complète':'wow','MoM · dernier mois complet':'mom','Semaine courante · même durée':'wtd','Mois courant · même durée':'mtd','Deux périodes libres':'custom'}
-    c1,c2=st.columns(2)
-    mode=c1.selectbox('Mode de comparaison',list(modes),key='period_mode')
-    anchor=c2.date_input('Date de référence',value=date.today(),key='anchor')
-    if modes[mode]=='custom':
-        c1,c2,c3,c4=st.columns(4)
-        a=c1.date_input('Actuel début',value=date(2026,9,28),key='current_start');b=c2.date_input('Actuel fin',value=date(2026,10,4),key='current_end')
-        c=c3.date_input('Référence début',value=date(2026,9,21),key='previous_start');d=c4.date_input('Référence fin',value=date(2026,9,27),key='previous_end')
-    else:a=b=c=d=None
-    try:
-        current,previous=periods(modes[mode],anchor,a,b,c,d);valid_period=True
-        period_config={'mode':mode,'anchor':str(anchor),'current_start':str(current[0]),'current_end':str(current[1]),'previous_start':str(previous[0]),'previous_end':str(previous[1])}
-        st.caption(f'Actuel : {current[0]} au {current[1]} ({(current[1]-current[0]).days+1} jours). Référence : {previous[0]} au {previous[1]} ({(previous[1]-previous[0]).days+1} jours).')
-    except ValueError as e:st.error(str(e));valid_period=False;period_config={}
+    bounds=available_bounds(ws.dataset)
+    valid_period=False;period_config={};current=previous=None
+    if not bounds:
+        st.info('Importez des données avec des dates valides pour afficher les périodes disponibles.')
+    else:
+        low,high=bounds
+        st.success(f'Plage disponible : {low:%d/%m/%Y} → {high:%d/%m/%Y}')
+        st.caption('Dates observées dans les données importées. La présence de dates ne certifie pas l’exhaustivité des sources.')
+        choices={label:available_comparisons(code,bounds) for label,code in modes.items() if code!='custom'}
+        allowed=[label for label,code in modes.items() if code=='custom' or choices[label]]
+        if st.session_state.get('period_mode') not in allowed:st.session_state['period_mode']=allowed[0]
+        mode=st.selectbox('Mode de comparaison',allowed,key='period_mode')
+        anchor=high
+        if modes[mode]=='custom':
+            defaults=default_custom(bounds)
+            signature=(ws.revision,str(low),str(high))
+            if st.session_state.get('date_bounds_revision')!=signature:
+                for key,value in zip(('current_start','current_end','previous_start','previous_end'),defaults):
+                    old=day(st.session_state.get(key))
+                    st.session_state[key]=old if old and low<=old<=high else value
+                st.session_state['date_bounds_revision']=signature
+            c1,c2,c3,c4=st.columns(4)
+            a=c1.date_input('Actuel début',min_value=low,max_value=high,key='current_start')
+            b=c2.date_input('Actuel fin',min_value=low,max_value=high,key='current_end')
+            c=c3.date_input('Référence début',min_value=low,max_value=high,key='previous_start')
+            d=c4.date_input('Référence fin',min_value=low,max_value=high,key='previous_end')
+        else:
+            options=choices[mode]
+            pick=st.selectbox('Périodes disponibles',range(len(options)),index=len(options)-1,
+                format_func=lambda i:f"{options[i][1][0]:%d/%m/%Y} → {options[i][1][1]:%d/%m/%Y} vs {options[i][2][0]:%d/%m/%Y} → {options[i][2][1]:%d/%m/%Y}",
+                key=f'available_period_{ws.revision}_{modes[mode]}')
+            anchor,current,previous=options[pick];a,b=current;c,d=previous
+        try:
+            current,previous=periods('custom',anchor,a,b,c,d)
+            valid_period=True
+            period_config={'mode':mode,'anchor':str(anchor),'current_start':str(current[0]),'current_end':str(current[1]),'previous_start':str(previous[0]),'previous_end':str(previous[1])}
+            st.caption(f'Actuel : {current[0]} au {current[1]} ({(current[1]-current[0]).days+1} jours). Référence : {previous[0]} au {previous[1]} ({(previous[1]-previous[0]).days+1} jours).')
+        except ValueError as e:st.error(str(e))
     if selected and valid_period:
         rid=st.selectbox('Restaurant à analyser',selected,format_func=lambda r:by_id[r]['name'],key='preview_restaurant')
         report=compare(ws.dataset,rid,current,previous)

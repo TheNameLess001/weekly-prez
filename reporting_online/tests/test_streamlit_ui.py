@@ -19,6 +19,23 @@ class StreamlitTests(unittest.TestCase):
             at.button(key='generate').click().run(timeout=40);self.assertEqual(len(at.exception),0)
             self.assertEqual(len(at.session_state['workspace'].results),1)
             self.assertEqual(at.session_state['workspace'].results[0]['results'][0]['ok'],True)
+    def test_dates_auto_detected_and_bounded(self):
+        from datetime import date
+        with patch.dict(os.environ,{'APP_PASSWORD':''}):
+            at=self.app().run()
+            self.assertFalse(any(x.label=='Actuel début' for x in at.date_input))
+            at.button(key='load_demo').click().run()
+            self.assertEqual(len(at.exception),0)
+            self.assertTrue(any('21/09/2026' in x.value and '04/10/2026' in x.value for x in at.success))
+            for key in ('current_start','current_end','previous_start','previous_end'):
+                widget=at.date_input(key=key)
+                self.assertEqual(widget.min,date(2026,9,21));self.assertEqual(widget.max,date(2026,10,4))
+            at.selectbox(key='period_mode').set_value('WoW · dernière semaine complète').run()
+            self.assertEqual(len(at.exception),0)
+            self.assertTrue(any('2026-09-28 au 2026-10-04' in x.value for x in at.caption))
+            at.button(key='clear_session').click().run()
+            self.assertEqual(len(at.exception),0)
+            self.assertFalse(any(x.label=='Périodes disponibles' for x in at.selectbox))
     def test_password_gate(self):
         with patch.dict(os.environ,{'APP_PASSWORD':'exemple-test-long-été'}):
             at=self.app().run();self.assertEqual(len(at.exception),0)
