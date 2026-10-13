@@ -31,6 +31,20 @@ class Workspace:
             else:child.unlink()
     def rebuild(self):
         self.dataset=ingest(self.sources,self.settings);self.settings=self.dataset.settings;self.revision+=1;self.results=[]
+    def refresh_imports(self):
+        """Upgrade pre-adapter sessions and saved mappings without discarding uploads."""
+        for source in self.sources:
+            for auto in inspect_file(source['path']):
+                old=next((x for x in source['sheets'] if x['sheet']==auto['sheet']),None)
+                if old is None:continue
+                if auto.get('profile')=='admin_earnings':
+                    old['mapping']={**auto['mapping'],**old.get('mapping',{})}
+                    old['profile']='admin_earnings'
+                    if old.get('grain')=='registry':old['grain']='orders'
+                elif auto['grain']=='orders' and old.get('grain')=='registry' and not old.get('mapping',{}).get('date'):
+                    old['mapping']={**auto['mapping'],**old.get('mapping',{})};old['grain']='orders'
+        self.rebuild()
+
     def add_uploads(self,files):
         incoming=[];errors=[]
         total=sum(Path(s['path']).stat().st_size for s in self.sources if Path(s['path']).is_file())
@@ -41,7 +55,8 @@ class Workspace:
             if len(raw)>MAX_UPLOAD or total+len(raw)>MAX_SESSION:
                 errors.append(f'{clean}: limite 100 Mo par fichier / 400 Mo par session');continue
             digest=hashlib.sha256(raw).hexdigest();ident=hashlib.sha256((clean+digest).encode()).hexdigest()[:20]
-            if any(s['id']==ident for s in self.sources):continue
+            if any(s['id']==ident for s in self.sources):
+                self.refresh_imports();continue
             folder=self.root/'imports'/digest[:16];folder.mkdir(parents=True,exist_ok=True);path=folder/clean;path.write_bytes(raw)
             try:sheets=inspect_file(path)
             except Exception as e:

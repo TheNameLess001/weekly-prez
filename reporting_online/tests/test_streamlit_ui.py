@@ -52,6 +52,52 @@ class StreamlitTests(unittest.TestCase):
             self.assertEqual(ds.rows[0]['gmv'],100)
             self.assertEqual(ds.rows[0]['ca'],31)
             self.assertEqual(len(ds.items),0)
+    def test_targeted_admin_presentations_custom_periods(self):
+        from datetime import date
+        from test_admin_earnings import AdminTests
+        import pandas as pd,json,zipfile
+        with patch.dict(os.environ,{'APP_PASSWORD':'faux-secret-test-import'}):
+            at=self.app().run();at.text_input(key='login_password').set_value('faux-secret-test-import');at.button[0].click().run()
+            rows=[]
+            for rid in ('A','B','C'):
+                for i,day in enumerate(('2026-09-22','2026-09-24','2026-09-29','2026-10-02')):
+                    rows.append({**AdminTests().fixture(),'Restaurant ID':rid,'restaurant name':'Restaurant '+rid,'order id':rid+str(i),'order day':day,'item total':100+i,'amount to restaurant':80+i})
+            raw=pd.DataFrame(rows).to_csv(index=False).encode()
+            at.file_uploader(key='data_upload').set_value([('admin.csv',raw,'text/csv')]).run();at.button(key='import_files').click().run()
+            at.multiselect(key='selected_ids').set_value(['A','C']).run()
+            at.selectbox(key='period_mode').set_value('Deux périodes libres').run()
+            chosen={'current_start':date(2026,9,29),'current_end':date(2026,10,2),'previous_start':date(2026,9,22),'previous_end':date(2026,9,24)}
+            for key,value in chosen.items():at.date_input(key=key).set_value(value)
+            at.run();self.assertEqual(len(at.exception),0)
+            at.checkbox(key='pdf_export').set_value(False).run();at.button(key='generate').click().run()
+            self.assertEqual(len(at.exception),0)
+            result=at.session_state['workspace'].results[-1]
+            self.assertEqual(result['request']['ids'],['A','C'])
+            self.assertEqual(result['request']['current'],(chosen['current_start'],chosen['current_end']))
+            self.assertEqual(result['request']['previous'],(chosen['previous_start'],chosen['previous_end']))
+            self.assertEqual(len(result['results']),2);self.assertTrue(all(r['ok'] for r in result['results']))
+            with zipfile.ZipFile(result['zip']) as z:
+                decks=[n for n in z.namelist() if n.endswith('.pptx')];self.assertEqual(len(decks),2)
+                for n in decks:
+                    import io
+                    with zipfile.ZipFile(io.BytesIO(z.read(n))) as deck:
+                        self.assertEqual(sum(n.startswith('ppt/slides/slide') and n.endswith('.xml') for n in deck.namelist()),14)
+                reports=[json.loads(z.read(n)) for n in z.namelist() if n.endswith('.json') and n not in ('journal.json','qualite.json')]
+                self.assertEqual({r['restaurant']['id'] for r in reports},{'A','C'})
+                self.assertTrue(all(r['current']['values']['delivered']==2 and r['previous']['values']['delivered']==2 for r in reports))
+
+    def test_legacy_registry_session_upgraded(self):
+        from test_admin_earnings import AdminTests
+        import pandas as pd
+        with patch.dict(os.environ,{'APP_PASSWORD':''}):
+            at=self.app().run();ws=at.session_state['workspace']
+            raw=pd.DataFrame([AdminTests().fixture()]).to_csv(index=False).encode()
+            ws.add_uploads([('legacy.csv',raw)])
+            sheet=ws.sources[0]['sheets'][0];sheet.pop('profile',None);sheet['grain']='registry';sheet['mapping'].pop('date');sheet['mapping'].pop('user_id')
+            at.session_state['import_schema_release']='old';at.run()
+            self.assertEqual(len(at.exception),0)
+            self.assertEqual(sheet['grain'],'orders');self.assertEqual(sheet['mapping']['date'],'order day')
+            self.assertEqual(len(ws.dataset.rows),1)
     def test_password_gate(self):
         with patch.dict(os.environ,{'APP_PASSWORD':'exemple-test-long-été'}):
             at=self.app().run();self.assertEqual(len(at.exception),0)

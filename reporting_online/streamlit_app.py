@@ -31,6 +31,8 @@ def app_password():
     if value=='REMPLACER_PAR_UN_SECRET_LONG_UNIQUE':return ''
     return value
 
+APP_RELEASE='2026.10.13.3'
+st.caption('Version '+APP_RELEASE)
 password=app_password();protected=bool(password)
 if protected and not st.session_state.get('authenticated',False):
     st.subheader('Connexion à l’espace équipe')
@@ -45,6 +47,9 @@ if protected and not st.session_state.get('authenticated',False):
 
 if 'workspace' not in st.session_state:st.session_state.workspace=Workspace()
 ws=st.session_state.workspace
+if st.session_state.get('import_schema_release')!=APP_RELEASE:
+    Workspace.refresh_imports(ws)
+    st.session_state['import_schema_release']=APP_RELEASE
 if 'restore_selection' in st.session_state and ws.dataset.registry:
     st.session_state['selected_ids']=[rid for rid in st.session_state.pop('restore_selection') if rid in ws.dataset.registry]
 if 'restore_period' in st.session_state:
@@ -75,9 +80,11 @@ with import_tab:
     if st.button('Importer les fichiers',disabled=not protected or not uploaded,key='import_files',type='primary'):
         with st.spinner('Inspection et consolidation…'):errors,n=ws.add_uploads([(f.name,f.getvalue()) for f in uploaded])
         for error in errors:st.error(error)
-        if n:st.success(f'{n} fichier(s) ajouté(s). Vérifiez le mapping et les dates.')
+        if n:st.success(f'{n} fichier(s) ajouté(s). Sélectionnez vos restaurants, puis vos périodes.')
     bounds=available_bounds(ws.dataset)
-    if bounds:st.success(f'Plage détectée dans les données : {bounds[0]:%d/%m/%Y} → {bounds[1]:%d/%m/%Y}')
+    if bounds:
+        st.success(f'Plage détectée dans les données : {bounds[0]:%d/%m/%Y} → {bounds[1]:%d/%m/%Y}')
+        st.caption(f'{len(ws.dataset.rows):,} lignes de performance et {len(ws.dataset.registry)} restaurants disponibles. Passez à « 3 · Sélectionner », puis « 4 · Analyser » et « 5 · Générer ».')
     if ws.sources:
         src_id=st.selectbox('Source à configurer',[s['id'] for s in ws.sources],format_func=lambda v:next(s['name'] for s in ws.sources if s['id']==v),key='source_selector')
         src=next(s for s in ws.sources if s['id']==src_id)
@@ -90,35 +97,36 @@ with import_tab:
         if sheet.get('profile')=='admin_earnings':
             from admin_earnings import FORMULAS
             st.success('Format Admin Earnings reconnu : dates, montants et KPI calculés automatiquement.')
-            with st.expander('Formules et données calculées',expanded=True):
+            with st.expander('Formules et données calculées',expanded=False):
                 st.dataframe(pd.DataFrame([{'KPI':k,'Calcul':v} for k,v in FORMULAS.items()]),hide_index=True,width='stretch')
                 st.caption('Nouveaux clients : historique initial nécessaire. Produits et catégories : lignes articles avec quantités nécessaires. Les valeurs sans données suffisantes restent N/D.')
-        with st.form('mapping_'+key):
-            c1,c2,c3=st.columns(3)
-            enabled=c1.checkbox('Importer cette feuille',value=sheet.get('enabled',True))
-            grain=c2.selectbox('Grain',list(grains),index=list(grains).index(sheet['grain']),format_func=grains.get)
-            dayfirst=c3.checkbox('Dates jour/mois',value=sheet.get('date_dayfirst',True))
-            complete=st.checkbox('Source exhaustive sur ces dates',value=sheet.get('complete',False),help='Certifier uniquement après vérification. Les articles exigent leur propre certification.')
-            c1,c2,c3=st.columns(3)
-            start=c1.date_input('Début couvert',value=day(sheet.get('coverage_start')) or None)
-            end=c2.date_input('Fin couverte',value=day(sheet.get('coverage_end')) or None)
-            year=c3.number_input('Année ISO si absente du nom',min_value=2000,max_value=2100,value=int(sheet.get('year',2026)))
-            all_partners=st.checkbox('La source couvre tous les partenaires importés',value=sheet.get('all_partners',False),help='Permet de distinguer zéro activité et absence de données du portefeuille.')
-            with st.expander('Mapping des colonnes',expanded=False):
-                mapping={};cols=st.columns(3)
-                for i,field in enumerate(FIELDS):
-                    from admin_earnings import FORMULAS
-                    automatic=grain=='orders' and (field in ('requests','delivered','cancelled','users','delivered_users','repeat_users') or (sheet.get('profile')=='admin_earnings' and field in FORMULAS))
-                    empty='Calculé automatiquement' if automatic else 'Non disponible'
-                    options=[empty,*sheet['columns']];existing=sheet.get('mapping',{}).get(field)
-                    value=cols[i%3].selectbox(field,options,index=options.index(existing) if existing in options else 0,key='map_'+key+field)
-                    if value!=empty:mapping[field]=value
-            applied=st.form_submit_button('Appliquer le mapping et les dates',type='primary')
-        if applied:
-            if complete and (not start or not end or start>end):st.error('Certification : saisir un intervalle valide.')
-            else:
-                sheet.update(enabled=enabled,grain=grain,date_dayfirst=dayfirst,complete=complete,coverage_start=str(start) if start else '',coverage_end=str(end) if end else '',year=int(year),all_partners=all_partners,mapping=mapping)
-                ws.rebuild();st.session_state['last_preview']=None;st.rerun()
+        with st.expander('Réglages avancés de cette source',expanded=False):
+            with st.form('mapping_'+key):
+                c1,c2,c3=st.columns(3)
+                enabled=c1.checkbox('Importer cette feuille',value=sheet.get('enabled',True))
+                grain=c2.selectbox('Grain',list(grains),index=list(grains).index(sheet['grain']),format_func=grains.get)
+                dayfirst=c3.checkbox('Dates jour/mois',value=sheet.get('date_dayfirst',True))
+                complete=st.checkbox('Source exhaustive sur ces dates',value=sheet.get('complete',False),help='Certifier uniquement après vérification. Les articles exigent leur propre certification.')
+                c1,c2,c3=st.columns(3)
+                start=c1.date_input('Début couvert',value=day(sheet.get('coverage_start')) or None)
+                end=c2.date_input('Fin couverte',value=day(sheet.get('coverage_end')) or None)
+                year=c3.number_input('Année ISO si absente du nom',min_value=2000,max_value=2100,value=int(sheet.get('year',2026)))
+                all_partners=st.checkbox('La source couvre tous les partenaires importés',value=sheet.get('all_partners',False),help='Permet de distinguer zéro activité et absence de données du portefeuille.')
+                with st.expander('Mapping des colonnes',expanded=False):
+                    mapping={};cols=st.columns(3)
+                    for i,field in enumerate(FIELDS):
+                        from admin_earnings import FORMULAS
+                        automatic=grain=='orders' and (field in ('requests','delivered','cancelled','users','delivered_users','repeat_users') or (sheet.get('profile')=='admin_earnings' and field in FORMULAS))
+                        empty='Calculé automatiquement' if automatic else 'Non disponible'
+                        options=[empty,*sheet['columns']];existing=sheet.get('mapping',{}).get(field)
+                        value=cols[i%3].selectbox(field,options,index=options.index(existing) if existing in options else 0,key='map_'+key+field)
+                        if value!=empty:mapping[field]=value
+                applied=st.form_submit_button('Appliquer le mapping et les dates',type='primary')
+            if applied:
+                if complete and (not start or not end or start>end):st.error('Certification : saisir un intervalle valide.')
+                else:
+                    sheet.update(enabled=enabled,grain=grain,date_dayfirst=dayfirst,complete=complete,coverage_start=str(start) if start else '',coverage_end=str(end) if end else '',year=int(year),all_partners=all_partners,mapping=mapping)
+                    ws.rebuild();st.session_state['last_preview']=None;st.rerun()
         if st.button('Retirer cette source',key='remove_'+src_id):ws.remove_source(src_id);st.session_state['last_preview']=None;st.rerun()
     else:st.info('Importez vos fichiers ou chargez la démonstration depuis le menu de gauche.')
 
@@ -242,6 +250,11 @@ with export_tab:
     pdf=st.checkbox('Ajouter les PDF',value=bool(pdf_converter()),disabled=not bool(pdf_converter()),key='pdf_export')
     if not pdf_converter():st.info('LibreOffice indisponible sur ce serveur. PPTX éditables et ZIP restent opérationnels.')
     st.caption(f'{len(selected)} restaurant(s) sélectionné(s). Les livrables sont temporaires : téléchargez le lot après génération.')
+    if selected:st.write('Restaurants : '+', '.join(by_id[rid]['name'] for rid in selected))
+    if valid_period:st.info(f'Actuel : {current[0]:%d/%m/%Y} → {current[1]:%d/%m/%Y} | Référence : {previous[0]:%d/%m/%Y} → {previous[1]:%d/%m/%Y}')
+    elif not bounds:st.warning('Importez un fichier de commandes avec une date reconnue pour générer la présentation.')
+    else:st.warning('Corrigez les deux périodes dans « 4 · Analyser » avant de générer.')
+    if not selected:st.info('Choisissez les restaurants dans « 3 · Sélectionner ».')
     if st.button('Générer la sélection',key='generate',type='primary',disabled=not selected or not valid_period):run_export(selected)
     for i,result in enumerate(reversed(ws.results)):
         st.divider();st.markdown('**Lot disponible**')
