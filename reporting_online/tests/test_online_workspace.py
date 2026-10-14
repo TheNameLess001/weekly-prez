@@ -36,7 +36,7 @@ class WorkspaceTests(unittest.TestCase):
         result=self.a.generate(['DEMO_BELHAJ','DEMO_RABAT'],interval,previous)
         self.assertTrue(Path(result['zip']).is_relative_to(self.a.root));self.assertEqual(len(result['results']),2);self.assertEqual(self.b.results,[])
         from pptx import Presentation
-        self.assertEqual(len(Presentation(result['results'][0]['pptx']).slides),14)
+        self.assertEqual(len(Presentation(result['results'][0]['pptx']).slides),20)
     def test_reset_only_own_session(self):
         self.a.load_demo();self.b.load_demo();self.a.reset();self.assertEqual(self.a.dataset.rows,[]);self.assertEqual(len(self.b.dataset.rows),417)
     def test_failed_config_keeps_settings(self):

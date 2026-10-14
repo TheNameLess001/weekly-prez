@@ -81,7 +81,7 @@ class StreamlitTests(unittest.TestCase):
                 for n in decks:
                     import io
                     with zipfile.ZipFile(io.BytesIO(z.read(n))) as deck:
-                        self.assertEqual(sum(n.startswith('ppt/slides/slide') and n.endswith('.xml') for n in deck.namelist()),14)
+                        self.assertEqual(sum(n.startswith('ppt/slides/slide') and n.endswith('.xml') for n in deck.namelist()),20)
                 reports=[json.loads(z.read(n)) for n in z.namelist() if n.endswith('.json') and n not in ('journal.json','qualite.json')]
                 self.assertEqual({r['restaurant']['id'] for r in reports},{'A','C'})
                 self.assertTrue(all(r['current']['values']['delivered']==2 and r['previous']['values']['delivered']==2 for r in reports))

@@ -102,6 +102,9 @@ class Workspace:
         obj=json.loads(raw)
         if obj.get('schema_version')!=1:raise ValueError('Version de configuration inconnue')
         settings=obj.get('settings',{});sanitized={k:str(settings[k])[:2000] for k in DEFINITION_KEYS if k in settings}
+        from engine import number
+        target=number(settings.get('sla_target_min'))
+        if target is not None and 0<target<=1440:sanitized['sla_target_min']=target
         ids=settings.get('verified_ids',{})
         if not isinstance(ids,dict):raise ValueError('Correspondances ID invalides')
         sanitized['verified_ids']={str(k):str(v) for k,v in ids.items()}

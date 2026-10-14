@@ -53,6 +53,8 @@ def item_period(ds,rid,interval):
     exact=covered==wanted and unmatched==0
     if not observed: notes.append('Aucune ligne produit observée sur cette période.')
     if covered!=wanted: notes.append(f'Articles : couverture non certifiée {len(covered)}/{len(wanted)} jours. Absence de produit ≠ zéro vente.')
+    if any(r.get('from_admin') for r in accepted):
+        notes.append('Quantités extraites du format Food Item [Produit{quantité}]. GMV par article absent, sans allocation du panier. Catégories multiples : attribution seulement si le même produit a une catégorie unique observée, sinon non attribuable.')
     if unmatched: notes.append(f'{unmatched} lignes avec statut inconnu ou incohérent avec la commande : exclues, variations N/A.')
     if unnamed: notes.append('Sans Product ID : correspondance exacte nom + catégorie uniquement. Un renommage peut créer deux produits.')
     missing_qty=sum(r.get('quantity') is None for r in accepted)
@@ -68,12 +70,12 @@ def item_period(ds,rid,interval):
     if accepted: totals=total(accepted)
     else: totals={'quantity':0 if exact else None,'gmv':0 if exact and money else None}
     return {'products':products,'categories':cats,'totals':totals,'days':len(wanted),'covered_days':len(covered),'exact':exact,'notes':notes,
-            'lines':len(accepted),'rankable':missing_qty==0,'sources':sorted({r['source'] for r in observed})}
+            'unmatched':unmatched,'lines':len(accepted),'rankable':missing_qty==0,'sources':sorted({r['source'] for r in observed})}
 
 def compare_products(ds,rid,current,previous):
     from engine import ratio,fmt
     cur,pre=item_period(ds,rid,current),item_period(ds,rid,previous)
-    reliable=cur['exact'] and pre['exact']
+    reliable=cur['unmatched']==0 and pre['unmatched']==0 and (cur['lines']>0 or cur['exact']) and (pre['lines']>0 or pre['exact'])
     def rows(kind):
         result=[]
         for key in set(cur[kind])|set(pre[kind]):
@@ -83,8 +85,8 @@ def compare_products(ds,rid,current,previous):
             b=pa['quantity'] if pa else (0 if pre['exact'] else None)
             ga=ca['gmv'] if ca else (0 if cur['exact'] and ds.settings.get('line_gmv_definition') else None)
             gb=pa['gmv'] if pa else (0 if pre['exact'] and ds.settings.get('line_gmv_definition') else None)
-            perday=a/cur['days'] if a is not None and cur['exact'] else None
-            prevday=b/pre['days'] if b is not None and pre['exact'] else None
+            perday=a/cur['days'] if a is not None else None
+            prevday=b/pre['days'] if b is not None else None
             delta=perday-prevday if reliable and perday is not None and prevday is not None else None
             rel=delta/prevday if delta is not None and prevday else None
             growth=f'{rel*100:+.1f} %'.replace('.',',') if rel is not None else ('Nouvelle activité' if delta is not None and prevday==0 and perday>0 else 'N/A')
@@ -102,4 +104,5 @@ def compare_products(ds,rid,current,previous):
     return {'current':cur,'previous':pre,'products':products,'categories':categories,'top3':top,'drops':drops,'risers':risers,'reliable':reliable,
             'top3_share':ratio(sum(r['current_qty'] for r in top),cur['totals']['quantity']),
             'ranking':'Quantités vendues sur commandes livrées. Variations comparées en unités/jour.',
+            'comparison_basis':'certifiée' if cur['exact'] and pre['exact'] else 'observée',
             'definition':ds.settings.get('line_gmv_definition') or 'Montant ligne non défini : GMV produit N/D.'}

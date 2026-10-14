@@ -31,7 +31,7 @@ def app_password():
     if value=='REMPLACER_PAR_UN_SECRET_LONG_UNIQUE':return ''
     return value
 
-APP_RELEASE='2026.10.13.3'
+APP_RELEASE='2026.10.14.1'
 st.caption('Version '+APP_RELEASE)
 password=app_password();protected=bool(password)
 if protected and not st.session_state.get('authenticated',False):
@@ -99,7 +99,7 @@ with import_tab:
             st.success('Format Admin Earnings reconnu : dates, montants et KPI calculés automatiquement.')
             with st.expander('Formules et données calculées',expanded=False):
                 st.dataframe(pd.DataFrame([{'KPI':k,'Calcul':v} for k,v in FORMULAS.items()]),hide_index=True,width='stretch')
-                st.caption('Nouveaux clients : historique initial nécessaire. Produits et catégories : lignes articles avec quantités nécessaires. Les valeurs sans données suffisantes restent N/D.')
+                st.caption('Nouveaux clients : historique initial nécessaire. Quantités produits : extraites de Food Item lorsque le format [Produit{quantité}] est valide. Prix par article absent : GMV produit N/D. Les valeurs sans données suffisantes restent N/D.')
         with st.expander('Réglages avancés de cette source',expanded=False):
             with st.form('mapping_'+key):
                 c1,c2,c3=st.columns(3)
@@ -208,9 +208,11 @@ with preview_tab:
         report=compare(ws.dataset,rid,current,previous)
         notes=report['current']['notes']+report['previous']['notes']
         for note in dict.fromkeys(notes):st.warning(note)
+        st.caption('Comparaison '+report['comparison_basis']+' : écarts = actuel − référence ; progression/régression = écart ÷ référence positive. Taux : points de pourcentage. Moyennes par jour : nombre de jours calendaires sélectionnés.')
         metrics={m['key']:m for m in report['metrics']};cols=st.columns(6)
         for col,key in zip(cols,['requests','delivered','sr','gmv','aov','users']):
             m=metrics[key];col.metric(m['label'],fmt(m['current'],m['kind'],ws.theme['currency']),m['delta_text'] if m['kind']=='rate' else m['growth'],delta_color='normal' if m['favorable'] is not None else 'off')
+            col.caption('Référence : '+fmt(m['previous'],m['kind'],ws.theme['currency']))
         st.markdown('**Constats observés**')
         for fact in report['facts']:st.write(fact)
         c1,c2=st.columns(2)
@@ -231,9 +233,9 @@ with preview_tab:
         for col,title,rows in [(c1,'Top hausses',merch['risers']),(c2,'Drop produits',merch['drops'])]:
             col.subheader(title)
             if rows:col.dataframe(pd.DataFrame([{'Produit':r['name'],'Écart unités/jour':r['delta_per_day'],'Évolution':r['growth']} for r in rows]),hide_index=True)
-            else:col.caption('Aucune variation mesurable.' if merch['reliable'] else 'N/A — périodes articles non certifiées.')
-        with st.expander('Tous les KPI'):
-            st.dataframe(pd.DataFrame([{'KPI':m['label'],'Actuel':fmt(m['current'],m['kind'],ws.theme['currency']),'Référence':fmt(m['previous'],m['kind'],ws.theme['currency']),'Écart':m['delta_text'],'Variation':m['growth']} for m in report['metrics']]),hide_index=True,width='stretch')
+            else:col.caption('Aucune variation mesurable.' if merch['reliable'] else 'N/A — détail comparable absent.')
+        with st.expander('Tous les KPI',expanded=True):
+            st.dataframe(pd.DataFrame([{'KPI':m['label'],'Actuel':fmt(m['current'],m['kind'],ws.theme['currency']),'Référence':fmt(m['previous'],m['kind'],ws.theme['currency']),'Écart':m['delta_text'],'Variation':m['growth'],'Effectif actuel':m['sample_current'],'Effectif réf.':m['sample_previous'],'Limite':m['unavailable_reason']} for m in report['metrics']]),hide_index=True,width='stretch')
         st.download_button('Télécharger le diagnostic JSON',dumps(report).encode(),file_name='diagnostic_'+rid+'.json',mime='application/json')
     else:st.info('Sélectionnez un restaurant pour voir les résultats.')
 
@@ -246,7 +248,7 @@ def run_export(ids):
 
 with export_tab:
     st.subheader('Générer les présentations')
-    st.write('14 slides par restaurant : performance, ventes produits, catégories, Top 3, hausses/Drop, plan d’action et annexes.')
+    st.write('Présentation complète par restaurant : performance, ventes produits, catégories, Top 3, hausses/Drop, plan d’action et annexes.')
     pdf=st.checkbox('Ajouter les PDF',value=bool(pdf_converter()),disabled=not bool(pdf_converter()),key='pdf_export')
     if not pdf_converter():st.info('LibreOffice indisponible sur ce serveur. PPTX éditables et ZIP restent opérationnels.')
     st.caption(f'{len(selected)} restaurant(s) sélectionné(s). Les livrables sont temporaires : téléchargez le lot après génération.')
@@ -278,6 +280,7 @@ with preferences_tab:
         values={};cols=st.columns(2)
         labels={'ca_definition':'CA Yassir','commission_definition':'Commissions','commission_base_definition':'Base de commission','promo_definition':'Coût promotionnel','benefit_definition':'Contribution / Benefit','line_gmv_definition':'Montant ligne produit','tax_basis':'Convention HT/TTC et devise'}
         for i,k in enumerate(DEFINITION_KEYS):values[k]=cols[i%2].text_area(labels[k],value=ws.settings.get(k,''),height=90)
+        sla_target=st.number_input('Objectif SLA en minutes (0 = non défini)',min_value=0.0,max_value=1440.0,value=float(ws.settings.get('sla_target_min') or 0),step=5.0)
         statuses=st.text_area('Statuts personnalisés (JSON facultatif)',value=json.dumps(ws.settings.get('statuses',{}),ensure_ascii=False),height=90)
         submitted=st.form_submit_button('Enregistrer les définitions',type='primary')
     if submitted:
@@ -285,6 +288,7 @@ with preferences_tab:
             mapping=json.loads(statuses)
             if not isinstance(mapping,dict) or any(not isinstance(v,list) for v in mapping.values()):raise ValueError('Statuts : objet JSON avec des listes')
             ws.settings.update(values)
+            ws.settings['sla_target_min']=sla_target or None
             if mapping:ws.settings['statuses']=mapping
             else:ws.settings.pop('statuses',None)
             ws.rebuild();st.rerun()

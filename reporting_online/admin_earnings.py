@@ -26,9 +26,11 @@ FORMULAS={
  'promo':'coupon admin + Discount Amount si Discount Type Provider = admin',
  'benefit':'final earnings ; sinon admin earnings + amount to restaurant',
  'accept_min':'Accepted at − (order day + order time)',
- 'prep_min':'Ready by Restaurant − Accepted at',
- 'wait_min':'picked up time − Ready by Restaurant',
+ 'prep_min':'picked up time − Accepted at (préparation estimée, attente éventuelle incluse)',
+ 'ready_min':'Ready by Restaurant − Accepted at (préparation déclarée)',
+ 'wait_min':'picked up time − Ready by Restaurant (attente après prêt, pas attente du livreur sur place)',
  'travel_min':'(delivered day + delivered at) − picked up time',
+ 'ctd_min':'delivery time(M) ; sinon livraison − création',
 }
 
 def is_admin(columns,norm):
@@ -37,6 +39,9 @@ def is_admin(columns,norm):
 
 def derive(record,r,norm,number):
     raw={norm(k):v for k,v in record.items()}
+    for key in ('food_item','food_category'):
+        v=raw.get(key)
+        if v is not None and not pd.isna(v):r[key]=str(v)
     provenance=r.setdefault('derived',{})
     def n(key):return number(raw.get(key))
     def put(key,value,formula):
@@ -82,8 +87,39 @@ def derive(record,r,norm,number):
     ready=stamp(raw.get('ready_by_restaurant'),accepted)
     pickup=stamp(raw.get('picked_up_time'),accepted or order)
     delivered=dated(raw.get('delivered_day'),raw.get('delivered_at'))
-    for key,start,end in [('accept_min',order,accepted),('prep_min',accepted,ready),('wait_min',ready,pickup),('travel_min',pickup,delivered)]:
+    # Reject contradictory event chains. Full dated timestamps are never wrapped.
+    accepted_valid=accepted is not None and (order is None or accepted>=order)
+    pickup_valid=pickup is not None and (accepted is None or (accepted_valid and pickup>=accepted)) and (delivered is None or pickup<=delivered)
+    ready_valid=ready is not None and accepted_valid and ready>=accepted and (pickup is None or ready<=pickup)
+    for key,start,end in [('accept_min',order,accepted if accepted_valid else None),
+                          ('prep_min',accepted,pickup if pickup_valid else None),
+                          ('ready_min',accepted,ready if ready_valid else None),
+                          ('wait_min',ready if ready_valid else None,pickup if pickup_valid else None),
+                          ('travel_min',pickup if pickup_valid else None,delivered),('ctd_min',order,delivered)]:
         if start and end:
             minutes=(end-start).total_seconds()/60
             if 0<=minutes<=1440:put(key,minutes,FORMULAS[key])
     if not provenance:r.pop('derived',None)
+
+
+def extract_items(order,ds):
+    """Admin export encodes explicit quantities as [Product{2}]. No basket allocation."""
+    text=order.get('food_item','').strip()
+    pattern=r'\[([^\[\]]+?)\{(\d+(?:[.,]\d+)?)\}\]'
+    matches=list(re.finditer(pattern,text))
+    remainder=re.sub(pattern,'',text)
+    if not matches or remainder.strip(' ,'):
+        ds.quality.append({'type':'articles non interprétables','source':order['source'],'detail':f"L{order['line']}: format Food Item non reconnu, aucune quantité inventée"})
+        return []
+    cats=[c.strip() for c in order.get('food_category','').strip('/').split('/') if c.strip()]
+    # Export categories can be deduplicated, so never assume positional alignment.
+    category=cats[0] if len(cats)==1 else 'Catégorie non attribuable'
+    result=[]
+    from engine import norm
+    for i,m in enumerate(matches):
+        name=m.group(1).strip();qty=float(m.group(2).replace(',','.'))
+        if not name or qty<=0:return []
+        result.append({**{k:order.get(k) for k in ('restaurant_id','order_id','date','status','source','line')},
+            'grain':'items','complete':False,'line_id':f"ADMIN:{i}", 'product_id':'ADMIN:'+norm(name),
+            'product_name':name,'category':category,'quantity':qty,'line_gmv':None,'from_admin':True})
+    return result

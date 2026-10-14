@@ -106,6 +106,6 @@ class EngineTests(unittest.TestCase):
             a=export_one(report,self.root); b=export_one(report,self.root)
             self.assertNotEqual(a['pptx'],b['pptx'])
             from pptx import Presentation
-            self.assertEqual(len(Presentation(a['pptx']).slides),14)
+            self.assertEqual(len(Presentation(a['pptx']).slides),20)
 
 if __name__=='__main__': unittest.main(verbosity=2)

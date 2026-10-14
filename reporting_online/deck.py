@@ -52,21 +52,22 @@ class Designer:
         self.text(s,.6,.4,10.9,.52,title,30,'white' if dark else 'text',True)
         if subtitle: self.text(s,.6,1.05,12,.48,subtitle,13,'white' if dark else 'muted')
         self.box(s,.6,7.05,12.1,.015,'primary')
-        tag='DÉMONSTRATION FICTIVE' if self.r['demo'] else 'REPORTING LOCAL'
+        tag='DÉMONSTRATION FICTIVE' if self.r['demo'] else 'REPORTING PARTENAIRE'
         self.text(s,.6,7.18,11,.22,f"{tag}  /  {self.r['restaurant']['name'][:60]}  /  {self.r['restaurant']['id']}",10,'white' if dark else 'muted')
         self.text(s,12.2,7.15,.5,.25,str(len(self.p.slides)).zfill(2),11,'white' if dark else 'muted')
         return s
     def dates(self):
         a,b=self.r['current_dates']; c,d=self.r['previous_dates']
-        return f"Actuel {a} au {b} ({self.r['current']['covered_days']}/{self.r['current']['days']} j certifiés)   /   Réf. {c} au {d} ({self.r['previous']['covered_days']}/{self.r['previous']['days']} j certifiés)"
+        return f"Actuel {a} au {b} ({self.r['current']['days']} j)   /   Réf. {c} au {d} ({self.r['previous']['days']} j)   /   Comparaison {self.r['comparison_basis']}"
     def card(self,s,key,x,y,w=3.86,h=1.6):
         m=self.metrics[key]; self.box(s,x,y,w,h,'white',True)
-        self.text(s,x+.2,y+.15,w-.4,.34,m['label'],14,'muted')
+        self.text(s,x+.2,y+.15,w-.4,.43,m['label'],13,'muted')
         val=fmt(m['current'],m['kind'],self.t['currency'])
         self.text(s,x+.2,y+.56,w-.4,.44,val,26 if len(val)<18 else 21,'text',True)
         self.text(s,x+.2,y+1.1,w-.4,.24,f"Réf. {fmt(m['previous'],m['kind'],self.t['currency'])}",11,'muted')
         color='muted' if m['favorable'] is None else 'good' if m['favorable'] else 'bad'
         evol=m['delta_text'] if m['kind']=='rate' else m['growth']
+        if m['previous']==0 and m['current'] is not None and m['current']!=0 and evol=='N/A':evol=m['delta_text']+' (réf. 0)'
         self.text(s,x+.2,y+1.35,w-.4,.23,evol,12,color,True)
     def grid(self,s,keys,y=1.8):
         for i,k in enumerate(keys): self.card(s,k,.6+(i%3)*4.08,y+(i//3)*1.9)
@@ -102,7 +103,7 @@ class Designer:
             for col,frac in zip(tab.columns,widths): col.width=Inches(w*frac)
         for i,row in enumerate([headers]+rows):
             for j,txt in enumerate(row):
-                cell=tab.cell(i,j); cell.text=str(txt)
+                cell=tab.cell(i,j); cell.text=str(txt); cell.text_frame.word_wrap=True
                 cell.fill.solid(); cell.fill.fore_color.rgb=self.color('deep' if i==0 else 'white')
                 cell.margin_left=Inches(.11); cell.margin_right=Inches(.07); cell.margin_top=Inches(.055); cell.margin_bottom=Inches(.025)
                 for p in cell.text_frame.paragraphs:
@@ -136,7 +137,7 @@ class Designer:
             self.chart(s,XL_CHART_TYPE.BAR_CLUSTERED,[short(r['name'],24) for r in categories],
                        [('Actuel',[r['current_qty'] for r in categories]),('Référence',[r['previous_qty'] for r in categories])],.6,2.3,5.7,3.6)
             rows=[[short(r['name'],26),fmt(r['share'],'rate'),fmt(r['current_gmv'],'money',self.t['currency']),f"{r['share_delta']*100:+.1f} pts".replace('.',',') if r['share_delta'] is not None else 'N/A',r['growth']] for r in categories]
-            self.table(s,['Catégorie','Part unités','GMV produit','Écart mix','Évol. /j'],rows,6.7,2.35,6.0,3.5,11,[.34,.16,.2,.15,.15])
+            self.table(s,['Catégorie','Part unités','GMV produit','Écart mix','Évol. /j'],rows,6.7,2.35,6.0,3.5,11,[.31,.16,.16,.18,.19])
             self.text(s,.7,6.25,11.8,.47,'Parts calculées sur les unités produits renseignées. '+coverage,13,'muted')
         s=self.new('Top 3 des produits',self.dates())
         if not merch['top3']: self.merch_empty(s,merch)
@@ -158,9 +159,9 @@ class Designer:
                 self.text(s,x+.1,1.85,5.8,.4,title,22,color,True)
                 rr=merch[key]
                 if rr:
-                    rows=[[short(r['name'],36),f"{r['delta_per_day']:+.2f}".replace('.',','),r['growth']] for r in rr]
+                    rows=[[short(r['name'],30),f"{r['delta_per_day']:+.2f}".replace('.',','),r['growth']] for r in rr]
                     self.table(s,['Produit','Écart u./j','Évolution'],rows,x,2.55,5.95,2.8,13,[.5,.2,.3])
-                else: self.text(s,x+.2,3.0,5.5,1.25,'Aucune '+('hausse' if key=='risers' else 'baisse')+' mesurable sur les périodes certifiées.',19,'muted')
+                else: self.text(s,x+.2,3.0,5.5,1.25,'Aucune '+('hausse' if key=='risers' else 'baisse')+' mesurable sur les données comparables.',19,'muted')
             text='Contrôler disponibilité, prix et visibilité des produits en baisse avant de proposer une relance.' if merch['drops'] else 'Suivre les produits en progression et vérifier leur disponibilité sur les prochains créneaux.'
             self.text(s,.7,5.85,11.9,.75,text,18)
             self.text(s,.7,6.65,11.8,.28,coverage,12,'muted')
@@ -177,9 +178,9 @@ class Designer:
         self.text(s,.7,3.25,11.6,.55,city,23,'white')
         self.text(s,.7,4.3,11.6,1.2,self.dates().replace('   /   ','\n'),19,'white')
         self.logo(s,self.t.get('restaurant_logos',{}).get(self.r['restaurant']['id']),10.4,5.7,2.2,.8)
-        self.text(s,.7,6.25,9,.35,'Données fictives. Aucun résultat réel.' if self.r['demo'] else 'Données locales et règles de calcul documentées',15,'white')
+        self.text(s,.7,6.25,9,.35,'Données fictives. Aucun résultat réel.' if self.r['demo'] else 'Performance sur les périodes sélectionnées',15,'white')
         s=self.new('Synthèse exécutive',self.dates()); self.grid(s,['requests','delivered','sr','gmv','aov','users'],1.68)
-        self.text(s,.7,5.7,11.9,1.12,'\n'.join(self.r['facts']),17)
+        self.text(s,.7,5.7,11.9,1.12,'\n'.join(self.r['facts'][:3]),17)
         s=self.new('Performance commerciale',self.dates())
         self.text(s,.65,1.7,5.6,.4,'Volumes comparés',20,bold=True)
         self.chart(s,XL_CHART_TYPE.COLUMN_CLUSTERED,['Reçues','Livrées'],
@@ -192,8 +193,8 @@ class Designer:
             [self.metrics[k]['label'],fmt(self.metrics[k]['current'],self.metrics[k]['kind']),fmt(self.metrics[k]['previous'],self.metrics[k]['kind']),self.metrics[k]['growth']]
             for k in ('gmv','delivered_per_day','gmv_per_day')],.7,5.35,11.9,1.3,13,[.34,.24,.24,.18])
         s=self.new('Clients et économie',self.dates())
-        self.grid(s,['delivered_users','new_users','frequency','commission','promo_per_order','benefit'],1.7)
-        self.text(s,.7,5.7,11.8,1.05,'Uniques : déduplication par User ID. Fréquence : livraisons / clients livrés.\nCA, commission et contribution dépendent des définitions validées dans les préférences. N/D signifie donnée non disponible.',16)
+        self.grid(s,['delivered_users','new_users' if self.metrics['new_users']['current'] is not None else 'observed_new_users','frequency','commission','promo_per_order','benefit'],1.7)
+        self.text(s,.7,5.7,11.8,1.05,'Uniques : déduplication par client. Fréquence : livraisons / clients livrés.\nPremiers clients observés : historique des fichiers importés. Nouveaux clients globaux : référentiel de première commande requis.',16)
         s=self.new('Qualité opérationnelle',self.dates())
         self.grid(s,['accept_min','prep_min','wait_min','travel_min','ctd_min','cancel_rate'],1.7)
         m=self.metrics['sr']; cur=self.r['current']
@@ -201,6 +202,18 @@ class Designer:
         self.text(s,.7,5.72,11.9,.85,f"SR {fmt(m['current'],'rate')} ({m['delta_text']}). Annulations / commandes reçues.\nMoyennes des commandes livrées documentées : {ns or 'effectifs N/D'}.",16)
         reasons=sorted(cur['reasons'].items(),key=lambda v:-v[1])[:3]
         self.text(s,.7,6.58,11.9,.25,'Motifs : '+', '.join(f'{k[:40]} ({v})' for k,v in reasons) if reasons else 'Motifs d’annulation : N/D',12,'muted')
+        s=self.new('Annulations et clients',self.dates())
+        self.grid(s,['cancel_restaurant','cancel_driver','cancel_client','cancel_other','active_days','repeat_users'],1.7)
+        other=self.metrics['cancel_other'];cancel=self.metrics['cancelled']
+        self.text(s,.7,5.7,11.8,1.0,f"Annulations totales : {fmt(cancel['current'])} contre {fmt(cancel['previous'])}. Administration / autres : {fmt(other['current'])} contre {fmt(other['previous'])}. Acteur inconnu : {fmt(self.metrics['cancel_unknown']['current'])}.\nTous les taux d’annulation utilisent les commandes reçues au dénominateur. Premiers clients observés ≠ nouveaux clients globaux.",15)
+        from engine import TIMES, TIME_LABELS
+        s=self.new('Délais et effectifs',self.dates())
+        rows=[]
+        for t in TIMES:
+            m=self.metrics[t];med=self.metrics[t+'_median']
+            rows.append([TIME_LABELS[t],fmt(m['current'],'time'),fmt(m['previous'],'time'),m['growth'],fmt(med['current'],'time'),str(int(cur['samples'].get(t) or 0))+' / '+str(int(self.r['previous']['samples'].get(t) or 0))])
+        self.table(s,['Durée','Moy. actuelle','Moy. réf.','Variation','Médiane act.','n act. / réf.'],rows,.6,1.8,12.1,3.3,14,[.24,.16,.16,.15,.16,.13])
+        self.text(s,.7,5.45,11.8,1.2,'Préparation estimée = retrait − acceptation, attente éventuelle incluse. Préparation déclarée = prêt − acceptation. Attente après prêt = retrait − prêt.\nCes durées se recouvrent : ne pas les additionner. Les calculs portent sur les livraisons avec horodatages cohérents, de 0 à 1 440 minutes.',16)
         self.merch_slides()
         s=self.new('Plan d’action','Pistes à tester. Les variations observées ne prouvent aucune causalité.')
         for i,action in enumerate(self.r['actions']):
@@ -211,33 +224,45 @@ class Designer:
             self.text(s,4.3,y+.97,7.98,.32,'Suivi : '+action['follow'],13,'muted')
         # Complete machine-verifiable KPI disclosure, including unavailable measures.
         ms=self.r['metrics']
-        for offset in range(0,len(ms),14):
-            s=self.new(f'Annexe KPI {offset//14+1}', 'Écarts absolus ; taux en points. Comparaison N/A lorsque la couverture n’est pas certifiée.')
+        for offset in range(0,len(ms),10):
+            s=self.new(f'Annexe KPI {offset//10+1}', 'Écarts et variations calculés avant arrondi. Actuel − référence. Taux en points, variation % sur base positive.')
             rows=[]
-            for m in ms[offset:offset+14]:
+            for m in ms[offset:offset+10]:
                 rows.append([m['label'],fmt(m['current'],m['kind']),fmt(m['previous'],m['kind']),m['delta_text'],m['growth']])
-            self.table(s,['KPI','Actuel','Référence','Écart','Variation'],rows,.6,1.7,12.1,4.98,12,[.30,.19,.19,.16,.16])
-        s=self.new('Définitions et sources',self.dates())
+            self.table(s,['KPI','Actuel','Référence','Écart','Variation'],rows,.6,1.7,12.1,4.98,14,[.30,.19,.19,.16,.16])
         ca=self.r['current']; pr=self.r['previous']; defs=self.r['definitions']
-        left=[f"Couverture certifiée : actuel {ca['covered_days']}/{ca['days']} jours ; référence {pr['covered_days']}/{pr['days']} jours.",
-              'SR = livraisons / reçues. AOV = GMV livré / livraisons. Taux d’annulation = annulations / reçues.',
-              'Clients récurrents = clients avec ≥ 2 livraisons dans la période / clients livrés uniques.',
-              'Temps : commandes livrées avec durée renseignée, en minutes. Médianes depuis les observations individuelles.',
-              'Acceptation : création → acceptation. Préparation : acceptation → prêt. Attente : arrivée livreur → retrait. Trajet : retrait → livraison. Click-to-door : création → livraison.',
-              'Agrégats : moyenne pondérée par les effectifs de chaque durée. Uniques et médianes multi-périodes N/D. Aucun prorata hebdomadaire.',
-              'Base monétaire : '+str(defs.get('tax_basis') or 'HT/TTC non renseigné. À vérifier.')]
-        self.text(s,.7,1.7,5.9,5.1,'\n'.join(left),14)
-        right=['DÉFINITIONS FINANCIÈRES']
-        for k in ('ca','commission','commission_base','promo','benefit'): right.append(k+' : '+str(defs.get(k+'_definition') or 'non définie, N/D'))
-        right.append('GMV produits : '+str(defs.get('line_gmv_definition') or 'montant ligne non défini, N/D'))
-        right+=['','LIMITES']+(ca['notes']+pr['notes'] or ['Aucune limite de couverture détectée.'])
+        s=self.new('Définitions des indicateurs',self.dates())
+        lines=[
+            'SR = livraisons / reçues. AOV = GMV livré / livraisons. Fréquence = livraisons / clients livrés uniques.',
+            'Récurrents = clients avec au moins 2 livraisons dans la période / clients livrés uniques. Déduplication des clients sur la période entière.',
+            'Variation = (actuel − référence) / référence positive. Base zéro : nouvelle activité ou N/A. Base négative : écart absolu, pourcentage N/A.',
+            'Les taux affichent leur écart en points de pourcentage. Les moyennes par jour divisent le total observé par les jours calendaires sélectionnés.',
+            'Temps : livraisons avec une durée valide. Médianes calculées depuis les observations. Agrégats : moyennes pondérées par les effectifs.',
+            'Acceptation = acceptation − création. Trajet = livraison − retrait. Click-to-door = durée source ou livraison − création.',
+            'Jours actifs : jours avec une livraison observée. Disponibilité : heures disponibles / heures prévues, source requise.',
+            'SLA : indicateur source ou click-to-door ≤ seuil utilisateur. Seuil : '+str(defs.get('sla_target_min') or 'non défini')+' min.'
+        ]
+        self.text(s,.7,1.7,11.8,5.1,'\n'.join(lines),18)
+        s=self.new('Définitions financières',self.dates())
+        for i,k in enumerate(('ca','commission','commission_base','promo','benefit')):
+            y=1.7+i*.86
+            self.text(s,.7,y,2.65,.6,k.replace('_',' ').capitalize(),17,'primary',True)
+            self.text(s,3.5,y,9.0,.73,str(defs.get(k+'_definition') or 'Définition et source absentes : N/D'),16)
+        self.text(s,.7,6.35,11.8,.45,'Convention monétaire : '+str(defs.get('tax_basis') or 'HT/TTC non qualifié dans la source.'),14,'muted')
+        s=self.new('Sources et limites',self.dates())
+        coverage=f"Jours avec observations : actuel {ca['observed_days']}/{ca['days']}, référence {pr['observed_days']}/{pr['days']}.\nJours certifiés exhaustifs : actuel {ca['covered_days']}/{ca['days']}, référence {pr['covered_days']}/{pr['days']}."
+        self.text(s,.7,1.7,11.8,.9,coverage,20,'primary',True)
+        notes=list(dict.fromkeys(ca['notes']+pr['notes']))
+        self.text(s,.7,2.9,11.8,2.35,'\n'.join(notes[:4]) or 'Aucune limite de couverture détectée.',16)
+        unavailable=[m for m in ms if m['current'] is None]
+        text='\n'.join(m['label']+' : '+m['unavailable_reason'] for m in unavailable[:3])
+        self.text(s,.7,5.25,11.8,1.0,text,14,'muted')
         sources=' ; '.join(self.r['sources'])
-        if len(sources)>300: sources=sources[:297]+'… (détail dans le JSON)'
-        right+=['','SOURCES',sources or 'Portefeuille local, sans commandes']
-        self.text(s,6.95,1.7,5.65,5.1,'\n'.join(right),13)
+        self.text(s,.7,6.5,11.8,.35,'Sources : '+(sources[:190] or 'Portefeuille sans commandes')+' (détail dans les notes et le JSON)',12,'muted')
         # All exact provenance and definitions are also retained in editable notes.
         for slide in self.p.slides:
             slide.notes_slide.notes_text_frame.text=dumps({'sources':self.r['sources'],'definitions':defs,'limits':ca['notes']+pr['notes'],
+                                                           'time_definitions':self.r['time_definitions'],'comparison_basis':self.r['comparison_basis'],
                                                            'samples_current':ca['samples'],'samples_previous':pr['samples'],'demo':self.r['demo'],
                                                            'product_sources':self.r['merchandising']['current']['sources']+self.r['merchandising']['previous']['sources'],
                                                            'product_definition':self.r['merchandising']['definition'],

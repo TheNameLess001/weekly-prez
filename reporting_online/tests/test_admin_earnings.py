@@ -16,7 +16,7 @@ class AdminTests(unittest.TestCase):
             sheets=inspect_file(p);self.assertEqual(sheets[0]['grain'],'orders');self.assertEqual(sheets[0]['profile'],'admin_earnings');self.assertEqual(sheets[0]['mapping']['date'],'order day')
             ds=ingest([{'path':str(p),'sheets':sheets}]);self.assertEqual(len(ds.rows),3)
             v=aggregate(ds,'TEST',(date(2026,10,5),date(2026,10,5)))['values']
-            for k,n in {'requests':3,'delivered':1,'cancelled':2,'cancel_client':1,'cancel_restaurant':1,'gmv':100,'commission':20,'ca':31,'promo':12,'benefit':10,'users':1,'aov':100,'frequency':1,'accept_min':2,'prep_min':8,'wait_min':3,'travel_min':10}.items():self.assertAlmostEqual(v[k],n,msg=k)
+            for k,n in {'requests':3,'delivered':1,'cancelled':2,'cancel_client':1,'cancel_restaurant':1,'gmv':100,'commission':20,'ca':31,'promo':12,'benefit':10,'users':1,'aov':100,'frequency':1,'accept_min':2,'prep_min':11,'ready_min':8,'wait_min':3,'travel_min':10}.items():self.assertAlmostEqual(v[k],n,msg=k)
             self.assertIsNone(v['new_users'])
     def test_source_precedence_and_missing_inputs(self):
         raw=self.fixture();raw['final earnings']=None;raw['restaurant commission']=None

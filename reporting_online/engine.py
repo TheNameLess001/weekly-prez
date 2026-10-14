@@ -42,6 +42,7 @@ ALIASES = {
  'cancel_reason': ['cancel reason','cancellation reason','motif annulation','cancellation reason'],
  'accept_min': ['accept min','acceptance minutes','temps acceptation'],
  'prep_min': ['prep min','preparation minutes','temps preparation'],
+ 'ready_min': ['ready min','ready minutes','preparation declaree'],
  'wait_min': ['wait min','driver wait minutes','attente livreur'],
  'travel_min': ['travel min','travel minutes','temps trajet'],
  'ctd_min': ['ctd min','click to door','delivery minutes','temps livraison','delivery time(M)'],
@@ -53,14 +54,15 @@ ALIASES = {
  'product_name': ['product name','item name','article','nom produit','nom article'],
  'category': ['category','categorie','product category'],
  'quantity': ['quantity','qty','quantite','units'],
+ 'food_item':['food item'], 'food_category':['food category'],
  'line_id': ['line id','order item id','id ligne'],
  'line_gmv': ['line gmv','item gmv','line total','montant ligne','gmv produit'],
 }
-TIMES = ['accept_min','prep_min','wait_min','travel_min','ctd_min']
+TIMES = ['accept_min','prep_min','ready_min','wait_min','travel_min','ctd_min']
 for t in TIMES:
     ALIASES[t+'_n'] = [t+'_n']
     ALIASES[t+'_median'] = [t+'_median']
-STRINGS = {'restaurant_id','restaurant_name','city','brand','order_id','user_id','status','cancel_actor','cancel_reason','product_id','product_name','category','line_id'}
+STRINGS = {'restaurant_id','restaurant_name','city','brand','order_id','user_id','status','cancel_actor','cancel_reason','product_id','product_name','category','line_id','food_item','food_category'}
 DATES = {'date','start','end','user_first_date'}
 FIELDS = list(ALIASES)
 ALIAS_LOOKUP = {norm(a): k for k,v in ALIASES.items() for a in [k]+v}
@@ -184,6 +186,7 @@ def ingest(sources,settings=None):
                 if admin:
                     from admin_earnings import derive
                     derive(record,r,norm,number)
+                    r['profile']='admin_earnings'
                 rid=r.get('restaurant_id')
                 if not rid:
                     key=f"{norm(r.get('restaurant_name',''))}|{norm(r.get('city',''))}"
@@ -219,6 +222,10 @@ def ingest(sources,settings=None):
                     ds.quality.append({'type':'dates invalides','source':label,'detail':f'L{idx+2} exclue'}); continue
                 if cover and not (cs<=r['start'] and r['end']<=ce):
                     ds.quality.append({'type':'hors couverture déclarée','source':label,'detail':f'L{idx+2} exclue'}); continue
+                for t in TIMES:
+                    if r.get(t) is not None and not 0<=r[t]<=1440:
+                        r[t]=None
+                        ds.quality.append({'type':'durée invalide','source':label,'detail':f'L{idx+2} {t}: durée exclue, commande conservée'})
                 bad=[k for k,v in r.items() if k in FIELDS and k not in STRINGS|DATES|{'benefit','ca'} and v is not None and v<0]
                 if bad or (r.get('requests') is not None and r.get('delivered') is not None and r['delivered']>r['requests']):
                     ds.quality.append({'type':'anomalie quantitative','source':label,'detail':f'L{idx+2} exclue : {bad or "Delivered > Requests"}'}); continue
@@ -262,6 +269,22 @@ def ingest(sources,settings=None):
             if id(a) in blocked:
                 ds.rows.remove(a); ds.coverage=[c for c in ds.coverage if c['source']!=a['source']]
                 ds.quality.append({'type':'chevauchement exclu','source':a['source'],'detail':f'{rid}: agrégats concurrents exclus, choisir une source'})
+    from admin_earnings import extract_items
+    explicit_item_orders={(item['restaurant_id'],item['order_id']) for item in ds.items}
+    for r in ds.rows:
+        if r.get('profile')=='admin_earnings' and (r['restaurant_id'],r['order_id']) not in explicit_item_orders:
+            for item in extract_items(r,ds):
+                from merchandising import register_item
+                register_item(ds,item,item_seen,item_conflicts)
+    # Recover ambiguous category only from an unambiguous source observation of the same product.
+    categories={}
+    for item in ds.items:
+        if item.get('from_admin') and item['category']!='Catégorie non attribuable':
+            categories.setdefault((item['restaurant_id'],item['product_id']),set()).add(item['category'])
+    for item in ds.items:
+        candidates=categories.get((item['restaurant_id'],item.get('product_id')),set())
+        if item.get('from_admin') and item['category']=='Catégorie non attribuable' and len(candidates)==1:
+            item['category']=next(iter(candidates));item['category_basis']='Catégorie unique observée pour ce produit dans une commande à catégorie unique'
     return ds
 
 def days(a,b): return (b-a).days+1
@@ -291,17 +314,22 @@ LABELS={
  'commission_rate':('Commission effective','rate',1),'promo':('Coût des promotions','money',-1),
  'promo_per_order':('Promotion / livraison','money',-1),'benefit':('Contribution','money',1),
  'users':('Utilisateurs uniques reçus','count',1),'delivered_users':('Clients livrés uniques','count',1),
- 'new_users':('Nouveaux clients livrés','count',1),'frequency':('Fréquence livrée','decimal',1),
+ 'new_users':('Nouveaux clients livrés','count',1),
+ 'observed_new_users':('Premiers clients observés du restaurant','count',1),
+ 'repeat_users':('Clients avec ≥ 2 livraisons','count',1),'frequency':('Fréquence livrée','decimal',1),
  'repeat_share':('Clients récurrents','rate',1),'cancelled':('Annulations','count',-1),
- 'cancel_rate':('Taux d’annulation','rate',-1),'sla_rate':('Respect SLA','rate',1),
+ 'cancel_rate':('Taux d’annulation','rate',-1),
+ 'cancel_other':('Annulations administration / autres','count',-1),
+ 'cancel_unknown':('Annulations acteur inconnu','count',-1),'sla_rate':('Respect SLA','rate',1),
  'availability':('Disponibilité','rate',1),'active_days':('Jours actifs','count',1),
  'requests_per_day':('Commandes reçues / jour','decimal',1),
  'delivered_per_day':('Livraisons / jour','decimal',1),'gmv_per_day':('GMV / jour','money',1),
 }
-TIME_LABELS={'accept_min':'Acceptation','prep_min':'Préparation','wait_min':'Attente livreur','travel_min':'Trajet','ctd_min':'Click-to-door'}
+TIME_LABELS={'accept_min':'Acceptation','prep_min':'Préparation estimée','ready_min':'Préparation déclarée','wait_min':'Attente après prêt','travel_min':'Trajet','ctd_min':'Click-to-door'}
 for t,l in TIME_LABELS.items():
-    LABELS[t]=(l+' moyen','time',-1); LABELS[t+'_median']=(l+' médian','time',-1)
-for actor,lab in [('restaurant','restaurant'),('driver','livreur'),('client','client')]:
+    feminine=t in ('accept_min','prep_min','ready_min','wait_min')
+    LABELS[t]=(l+(' moyenne' if feminine else ' moyen'),'time',-1); LABELS[t+'_median']=(l+(' médiane' if feminine else ' médian'),'time',-1)
+for actor,lab in [('restaurant','restaurant'),('driver','livreur'),('client','client'),('other','administration / autres'),('unknown','acteur inconnu')]:
     LABELS['cancel_'+actor]=('Annulations '+lab,'count',-1)
     LABELS['cancel_'+actor+'_rate']=('Taux annulations '+lab,'rate',-1)
 
@@ -347,10 +375,11 @@ def aggregate(ds,rid,interval):
         values['requests']=len(orders)
         if None not in statuses:
             values['delivered']=len(delivered); values['cancelled']=len(cancelled)
-            for actor in ('restaurant','driver','client'):
-                actor_map={'restaurant':['restaurant','resto','merchant'],'driver':['driver','livreur','courier'],'client':['client','customer','user']}
-                if all(norm(r.get('cancel_actor','')) in sum(actor_map.values(),[])+['other','autre'] for r in cancelled):
-                    values['cancel_'+actor]=sum(norm(r.get('cancel_actor','')) in actor_map[actor] for r in cancelled)
+            for actor in ('restaurant','driver','client','other','unknown'):
+                actor_map={'restaurant':['restaurant','resto','merchant'],'driver':['driver','livreur','courier'],'client':['client','customer','user'],'other':['other','autre']}
+                values['cancel_'+actor]=sum((norm(r.get('cancel_actor','')) not in sum(actor_map.values(),[])) if actor=='unknown' else (norm(r.get('cancel_actor','')) in actor_map[actor]) for r in cancelled)
+            if values['cancel_unknown']:
+                notes.append(f"{values['cancel_unknown']} annulations sans acteur reconnu : ventilées en acteur inconnu, jamais imputées au livreur.")
             for r in cancelled:
                 reason=r.get('cancel_reason') or 'Motif non renseigné'; reasons[reason]=reasons.get(reason,0)+1
         for key in ('gmv','ca','commission','commission_base','promo','benefit'):
@@ -360,7 +389,15 @@ def aggregate(ds,rid,interval):
         if all(r.get('user_id') for r in orders): values['users']=len({r['user_id'] for r in orders})
         if None not in statuses and all(r.get('user_id') for r in delivered):
             users={r['user_id'] for r in delivered}; values['delivered_users']=len(users)
-            values['repeat_share']=ratio(sum(sum(r['user_id']==u for r in delivered)>=2 for u in users),len(users))
+            counts=pd.Series([r['user_id'] for r in delivered]).value_counts()
+            values['repeat_users']=int((counts>=2).sum())
+            values['repeat_share']=ratio(values['repeat_users'],len(users))
+            history=[r for r in ds.rows if r['restaurant_id']==rid and r['grain']=='orders' and r['start']<=b and known_status(r,ds.settings)=='delivered']
+            if all(r.get('user_id') for r in history):
+                first={}
+                for r in history:first[r['user_id']]=min(first.get(r['user_id'],r['start']),r['start'])
+                values['observed_new_users']=sum(a<=first[u]<=b for u in users)
+                notes.append('Premiers clients observés : première livraison du restaurant dans les fichiers importés, historique antérieur non garanti. Nouveaux clients globaux distincts.')
             if delivered and all(r.get('user_first_date') for r in delivered):
                 values['new_users']=len({r['user_id'] for r in delivered if a<=r['user_first_date']<=b})
             elif delivered and all(r.get('is_new') in (0,1) for r in delivered):
@@ -371,8 +408,12 @@ def aggregate(ds,rid,interval):
             if vals:
                 values[t]=sum(vals)/len(vals); values[t+'_median']=float(pd.Series(vals).median())
         sla=[r['sla_met'] for r in delivered if r.get('sla_met') in (0,1)]
+        threshold=number(ds.settings.get('sla_target_min'))
+        if threshold is not None and threshold>0:
+            sla=[r['sla_met'] if r.get('sla_met') in (0,1) else int(r['ctd_min']<=threshold) for r in delivered if r.get('sla_met') in (0,1) or r.get('ctd_min') is not None]
+            notes.append(f'SLA calculé : click-to-door ≤ {threshold:g} min, seuil défini par l’utilisateur.')
         values['sla_rate']=sum(sla)/len(sla) if sla else None; samples['sla_rate']=len(sla)
-        values['active_days']=len({r['start'] for r in delivered}) if exact and None not in statuses else None
+        values['active_days']=len({r['start'] for r in delivered}) if None not in statuses else None
     if aggs:
         for key in ('requests','delivered','gmv','ca','commission','commission_base','promo','benefit','cancelled','cancel_restaurant','cancel_driver','cancel_client','active_days'):
             v=strict_sum(aggs,key)
@@ -413,9 +454,9 @@ def aggregate(ds,rid,interval):
     values['commission_rate']=ratio(values['commission'],values.get('commission_base')) if ds.settings.get('commission_base_definition') else None
     values['promo_per_order']=ratio(values['promo'],values['delivered'])
     values['frequency']=ratio(values['delivered'],values['delivered_users'])
-    for actor in ('','restaurant','driver','client'):
+    for actor in ('','restaurant','driver','client','other','unknown'):
         values['cancel_rate' if not actor else 'cancel_'+actor+'_rate']=ratio(values['cancelled' if not actor else 'cancel_'+actor],values['requests'])
-    for k in ('requests','delivered','gmv'): values[k+'_per_day']=values[k]/len(requested) if exact and values[k] is not None else None
+    for k in ('requests','delivered','gmv'): values[k+'_per_day']=values[k]/len(requested) if values[k] is not None else None
     trend=[]
     for start in sorted({r['start'] for r in rows}):
         rr=[r for r in rows if r['start']==start]
@@ -428,8 +469,8 @@ def aggregate(ds,rid,interval):
 def fmt(value,kind='count',currency='MAD'):
     if value is None: return 'N/D'
     if kind=='rate': return f'{value*100:.1f} %'.replace('.',',')
-    if kind=='time': return f'{value:.1f} min'.replace('.',',')
-    if kind=='money': return f'{value:,.0f}'.replace(',',' ')+' '+currency
+    if kind=='time': return f'{(0.0 if abs(value)<.05 else value):.1f} min'.replace('.',',')
+    if kind=='money': return f'{value:,.2f}'.replace(',',' ').replace('.',',')+' '+currency
     if kind=='decimal': return f'{value:.2f}'.replace('.',',')
     return f'{value:,.0f}'.replace(',',' ')
 
@@ -439,14 +480,24 @@ def compare(ds,rid,current,previous):
     reliable=cur['covered_days']==cur['days'] and pre['covered_days']==pre['days']
     for k,(label,kind,direction) in LABELS.items():
         a,b=cur['values'].get(k),pre['values'].get(k)
-        diff=a-b if a is not None and b is not None and reliable else None
-        rel=diff/b if diff is not None and b!=0 else None
+        diff=a-b if a is not None and b is not None else None
+        rel=diff/b if diff is not None and b>0 else None
         shown_diff=0. if diff is not None and kind=='rate' and abs(diff)<.0005 else diff
-        delta=(f'{shown_diff*100:+.1f} pts'.replace('.',',') if kind=='rate' else fmt(diff,kind)) if diff is not None else 'N/A'
-        growth=f'{(0 if abs(rel)<.0005 else rel)*100:+.1f} %'.replace('.',',') if rel is not None else ('Nouvelle activité' if reliable and b==0 and a is not None and a>0 and kind in ('count','money') else 'N/A')
+        delta=(f'{shown_diff*100:+.1f} pts'.replace('.',',') if kind=='rate' else (('+' if diff>0 else '')+fmt(diff,kind))) if diff is not None else 'N/A'
+        growth=f'{(0 if abs(rel)<.0005 else rel)*100:+.1f} %'.replace('.',',') if rel is not None else ('Nouvelle activité' if b==0 and a is not None and a>0 and k in ('requests','delivered','gmv','ca','commission','users','delivered_users','new_users','observed_new_users','repeat_users','requests_per_day','delivered_per_day','gmv_per_day') else ('N/A (base négative)' if b is not None and b<0 else 'N/A'))
         neutral=diff is None or abs(diff)<({'rate':.0005,'time':.05,'money':.5,'decimal':.005}.get(kind,.5))
+        reason=''
+        if a is None or b is None:
+            reason=('Référentiel de première commande globale absent' if k=='new_users' else
+                    'Heures disponibles et heures prévues absentes' if k=='availability' else
+                    'Statut SLA ou seuil SLA utilisateur absent' if k=='sla_rate' else
+                    'Horodatages valides insuffisants sur au moins une période' if k.replace('_median','') in TIMES else
+                    'Donnée, définition ou période absente dans la source')
         metrics.append({'key':k,'label':label,'kind':kind,'current':a,'previous':b,'delta':diff,'relative':rel,'delta_text':delta,'growth':growth,
-                        'favorable':None if neutral else diff*direction>0})
+                        'favorable':None if neutral else diff*direction>0,
+                        'basis':'certifiée' if reliable else 'observée','unavailable_reason':reason,
+                        'sample_current':cur['samples'].get(k.replace('_median','')),
+                        'sample_previous':pre['samples'].get(k.replace('_median',''))})
     index={m['key']:m for m in metrics}
     facts=[]; actions=[]
     for k in ('delivered','gmv','sr'):
@@ -470,7 +521,7 @@ def compare(ds,rid,current,previous):
     missing=[m['label'] for m in metrics if m['current'] is None]
     fallbacks=[]
     if cur['covered_days']<cur['days']:
-        fallbacks.append({'title':'Dates et exhaustivité','fact':f"Couverture certifiée {cur['covered_days']}/{cur['days']} jours.",'action':'Vérifier le périmètre et compléter les jours absents de la source avant de comparer les volumes.','follow':'Jours certifiés et écarts calculables'})
+        fallbacks.append({'title':'Dates et exhaustivité','fact':f"Couverture certifiée {cur['covered_days']}/{cur['days']} jours.",'action':'Vérifier le périmètre et les jours absents. Les variations affichées portent sur les données importées.','follow':'Jours certifiés et écarts calculables'})
     if cur['values']['users'] is None or cur['values']['new_users'] is None:
         fallbacks.append({'title':'Mesure des clients','fact':'Uniques ou nouveaux utilisateurs N/D sur la période.','action':'Récupérer les User ID et la date de première commande issue du référentiel clients.','follow':'Uniques, nouveaux et fréquence'})
     financial=[k for k in ('commission','promo','benefit') if cur['values'][k] is None]
@@ -478,10 +529,12 @@ def compare(ds,rid,current,previous):
         fallbacks.append({'title':'Mesure économique','fact':f"{len(financial)} mesures absentes : "+', '.join(financial)+'.','action':'Valider les définitions et importer les montants du complément financier sur les mêmes dates.','follow':'Commission, promotion et contribution'})
     missing_times=[k for k in TIMES if cur['values'][k] is None]
     if missing_times:
-        fallbacks.append({'title':'Mesure des délais','fact':f"{len(missing_times)}/5 durées opérationnelles N/D.",'action':'Compléter les observations de durée ou leurs effectifs avant de fixer une priorité opérationnelle.','follow':'Effectifs des durées et click-to-door'})
+        fallbacks.append({'title':'Mesure des délais','fact':f"{len(missing_times)}/{len(TIMES)} durées opérationnelles N/D.",'action':'Compléter les observations de durée ou leurs effectifs avant de fixer une priorité opérationnelle.','follow':'Effectifs des durées et click-to-door'})
     for action in fallbacks:
         if len(actions)>=3: break
         actions.append(action)
+    if cur['days']!=pre['days']:
+        facts.append('Durées différentes : comparer aussi les volumes par jour calendaire sélectionné.')
     from merchandising import compare_products
     merch=compare_products(ds,rid,current,previous)
     if merch['drops']:
@@ -492,6 +545,8 @@ def compare(ds,rid,current,previous):
     return {'restaurant':ds.registry[rid],'current_dates':[str(x) for x in current],'previous_dates':[str(x) for x in previous],
             'current':cur,'previous':pre,'metrics':metrics,'facts':facts,'actions':actions[:3],
             'demo':ds.demo,'definitions':ds.settings,'sources':sorted({r['source'] for r in ds.rows if r['restaurant_id']==rid}),
+            'comparison_basis':'certifiée' if reliable else 'observée',
+            'time_definitions':__import__('admin_earnings').FORMULAS,
             'quality_count':len([q for q in ds.quality if q['type']!='import']), 'merchandising':merch}
 
 def serializable(x):

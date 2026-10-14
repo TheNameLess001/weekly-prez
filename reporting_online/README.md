@@ -1,6 +1,6 @@
 # Yassir Performance Studio — Streamlit Online
 
-Interface en français pour importer des exports Excel/CSV, vérifier les colonnes et doublons, comparer des restaurants et générer les présentations éditables de **14 slides** validées : performance, meilleures ventes, catégories, Top 3, hausses/Drop, plan d’action et annexes.
+Interface en français pour importer des exports Excel/CSV, vérifier les colonnes et doublons, comparer des restaurants et générer les présentations éditables de **20 slides** validées : performance, meilleures ventes, catégories, Top 3, hausses/Drop, plan d’action et annexes.
 
 ## Déploiement Streamlit Community Cloud
 
@@ -41,7 +41,7 @@ La reconnexion complète, la fermeture de session ou le redémarrage du serveur 
 - Commande : Restaurant ID, Order ID et date. Ligne article : Restaurant ID, Order ID, Line ID, date, produit et quantité. Catégorie et montant ligne complètent le reporting.
 - Doublon identique exclu ; champs complémentaires fusionnés ; conflits exclus et couverture invalidée.
 - Ratios recalculés depuis leurs numérateurs/dénominateurs. Moyennes opérationnelles pondérées par l’effectif de chaque durée. Médianes et utilisateurs uniques multi-périodes ne sont pas fabriqués depuis des agrégats.
-- N/D est une donnée inconnue. Un restaurant/produit absent ne devient zéro que sur une source exhaustive. Les variations restent N/A sur une couverture non certifiée.
+- N/D est une donnée inconnue. Un restaurant/produit absent ne devient zéro que sur une source exhaustive. Les variations sont calculées lorsque les deux valeurs sont connues, avec un libellé observé ou certifié. Une valeur absente reste N/D. Pour une référence négative, seul l’écart absolu est interprétable ; le pourcentage reste N/A.
 - L’agrégat hebdomadaire ne peut pas être découpé en dates fines. Les évolutions produit/Drop comparent les unités par jour sur les périodes certifiées.
 - CA, commissions, promotions, contribution et GMV article exigent une définition et une convention HT/TTC validées dans les préférences. Le GMV article ne recopie jamais le montant complet de commande sur chaque article.
 - Les constats et recommandations sont déterministes, sans IA distante ni conclusion causale automatique.
@@ -68,3 +68,16 @@ python -m unittest discover -s tests -v
 Les tests vérifient les calculs historiques, les articles, l’isolation de deux sessions, l’import/restauration de mappings, l’invalidation des dates sur fichier modifié, la protection par connexion et le parcours **réel Streamlit AppTest** : démo → analyse → export. Le déploiement Community Cloud et son accès doivent être vérifiés séparément après connexion au compte de publication.
 
 Références officielles : [déploiement](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy), [dépendances](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/app-dependencies), [AppTest](https://docs.streamlit.io/develop/api-reference/app-testing/st.testing.v1.apptest).
+
+
+### Calculs Admin Earnings et comparaison
+
+- Préparation estimée = `picked up time − Accepted at`, attente éventuelle incluse. Préparation déclarée = `Ready by Restaurant − Accepted at`. Attente après prêt = `picked up time − Ready by Restaurant` ; le fichier ne fournit pas l’arrivée réelle du livreur au restaurant.
+- Les heures sans date passent au lendemain seulement lorsque nécessaire ; les dates explicites incohérentes sont rejetées. Les durées invalides ne suppriment pas la commande commerciale.
+- Moyennes et médianes sur les livraisons avec une durée valide, avec effectifs actuels et de référence. CTD : durée source en priorité, sinon livraison − création.
+- Taux : écart en points et variation relative distincts. Totaux quotidiens divisés par les jours calendaires sélectionnés, même sur données observées ; pas d’imputation de jours absents à zéro.
+- Montants affichés avec deux décimales, calculs effectués avant arrondi. Référence zéro : nouvelle activité pour les volumes commerciaux, sinon N/A et écart absolu.
+- Quantités des produits extraites des descriptions `[Produit{quantité}]`. Les lignes articles explicites ont priorité pour éviter un double comptage. Aucun GMV article n’est inventé depuis le panier.
+- Une catégorie ambiguë peut être récupérée lorsqu’un même produit du restaurant a une seule catégorie connue dans une commande à catégorie unique. Sinon elle reste non attribuable.
+- Premiers clients observés = première livraison du restaurant dans l’historique importé. Ce KPI reste distinct des nouveaux clients globaux, qui exigent un référentiel de première commande.
+- SLA : indicateur source ou seuil de click-to-door défini dans les préférences (0 = non défini). Disponibilité : heures disponibles / heures prévues, uniquement si fournies.
