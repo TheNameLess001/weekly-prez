@@ -85,3 +85,30 @@ class ComparisonTests(unittest.TestCase):
     def test_french_timestamps_do_not_swap_month_and_day(self):
         raw={'order day':'04/10/2026','order time':'10:00:00','Accepted at':'04/10/2026 10:05:00','picked up time':'10:25:00','delivered day':'04/10/2026','delivered at':'10:35:00'}
         r={};derive(raw,r,norm,number);self.assertEqual(r['accept_min'],5);self.assertEqual(r['prep_min'],20);self.assertEqual(r['ctd_min'],35)
+
+    def test_missing_food_cells_are_safe(self):
+        from engine import Dataset
+        from admin_earnings import extract_items
+        base=dict(restaurant_id='A',order_id='1',date=date(2026,10,5),status='Delivered',source='test',line=2)
+        for missing in (None,float('nan'),pd.NA,''):
+            with self.subTest(value=repr(missing)):
+                ds=Dataset()
+                items=extract_items({**base,'food_item':'[Burger{2}]','food_category':missing},ds)
+                self.assertEqual(len(items),1);self.assertEqual(items[0]['quantity'],2)
+                self.assertEqual(items[0]['category'],'Catégorie non attribuable')
+                self.assertEqual(extract_items({**base,'food_item':missing,'food_category':missing},ds),[])
+
+    def test_csv_and_excel_blank_food_cells_preserve_order_kpis(self):
+        raw={'Restaurant ID':'A','order id':'1','order day':'2026-10-05','status':'Delivered','item total':100,'Food Item':'[Burger{2}]','Food Category':None}
+        tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup);root=Path(tmp.name)
+        for extension in ('csv','xlsx'):
+            with self.subTest(format=extension):
+                p=root/('blank_food.'+extension)
+                frame=pd.DataFrame([raw,{**raw,'order id':'2','Food Item':None}])
+                if extension=='xlsx':frame.to_excel(p,index=False)
+                else:frame.to_csv(p,index=False)
+                ds=ingest([{'path':str(p),'sheets':inspect_file(p)}]);r=self.report(ds)
+                self.assertEqual(len(ds.rows),2);self.assertEqual(len(ds.items),1)
+                self.assertEqual(r['current']['values']['delivered'],2)
+                self.assertEqual(r['current']['values']['gmv'],200)
+                self.assertEqual(r['merchandising']['current']['totals']['quantity'],2)

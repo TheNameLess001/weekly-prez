@@ -9,6 +9,21 @@ sys.path.insert(0,str(ROOT))
 
 class StreamlitTests(unittest.TestCase):
     def app(self):return AppTest.from_file(str(ROOT/'streamlit_app.py'),default_timeout=40)
+    def test_upload_admin_with_blank_food_category_and_item(self):
+        from test_admin_earnings import AdminTests
+        import pandas as pd
+        with patch.dict(os.environ,{'APP_PASSWORD':'faux-secret-test-import'}):
+            at=self.app().run();at.text_input(key='login_password').set_value('faux-secret-test-import');at.button[0].click().run()
+            one={**AdminTests().fixture(),'Food Item':'[Burger{2}]','Food Category':None}
+            two={**one,'order id':'O2','Food Item':None}
+            raw=pd.DataFrame([one,two]).to_csv(index=False).encode()
+            at.file_uploader(key='data_upload').set_value([('blank_food.csv',raw,'text/csv')]).run()
+            at.button(key='import_files').click().run()
+            self.assertEqual(len(at.exception),0)
+            ds=at.session_state['workspace'].dataset
+            self.assertEqual(len(ds.rows),2);self.assertEqual(len(ds.items),1)
+            self.assertEqual(ds.items[0]['quantity'],2)
+            self.assertEqual(ds.items[0]['category'],'Catégorie non attribuable')
     def test_demo_and_full_export_flow(self):
         with patch.dict(os.environ,{'APP_PASSWORD':''}):
             at=self.app().run();self.assertEqual(len(at.exception),0)

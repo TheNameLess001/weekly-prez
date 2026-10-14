@@ -107,14 +107,18 @@ def derive(record,r,norm,number):
 
 def extract_items(order,ds):
     """Admin export encodes explicit quantities as [Product{2}]. No basket allocation."""
-    text=order.get('food_item','').strip()
+    # Mapped empty CSV/Excel cells can exist as None, NaN or pandas.NA.
+    # dict.get(default) does not replace a present missing value.
+    def optional_text(value):
+        return '' if value is None or pd.isna(value) else str(value).strip()
+    text=optional_text(order.get('food_item'))
     pattern=r'\[([^\[\]]+?)\{(\d+(?:[.,]\d+)?)\}\]'
     matches=list(re.finditer(pattern,text))
     remainder=re.sub(pattern,'',text)
     if not matches or remainder.strip(' ,'):
         ds.quality.append({'type':'articles non interprétables','source':order['source'],'detail':f"L{order['line']}: format Food Item non reconnu, aucune quantité inventée"})
         return []
-    cats=[c.strip() for c in order.get('food_category','').strip('/').split('/') if c.strip()]
+    cats=[c.strip() for c in optional_text(order.get('food_category')).strip('/').split('/') if c.strip()]
     # Export categories can be deduplicated, so never assume positional alignment.
     category=cats[0] if len(cats)==1 else 'Catégorie non attribuable'
     result=[]
