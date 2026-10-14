@@ -79,7 +79,10 @@ def derive(record,r,norm,number):
         except (ValueError,TypeError,OverflowError):return None
     def dated(day_value,time_value):
         if day_value is None or pd.isna(day_value):return None
-        try:base=pd.to_datetime(day_value).date()
+        try:
+            if isinstance(day_value,(int,float)):
+                base=(pd.Timestamp('1899-12-30')+pd.to_timedelta(float(day_value),unit='D')).date()
+            else:base=pd.to_datetime(day_value,dayfirst=not bool(re.match(r'^\d{4}-',str(day_value)))).date()
         except (ValueError,TypeError):return None
         return stamp(str(base)+' '+str(time_value))
     order=dated(raw.get('order_day'),raw.get('order_time'))

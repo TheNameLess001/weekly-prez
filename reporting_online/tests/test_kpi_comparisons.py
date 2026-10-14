@@ -81,3 +81,7 @@ class ComparisonTests(unittest.TestCase):
         pd.DataFrame([dict(restaurant_id='A',order_id='1',date='2026-10-05',line_id='L1',product_id='B',product_name='Burger',quantity=2,status='delivered')]).to_csv(items,index=False)
         ds=ingest([{'path':str(p),'sheets':inspect_file(p)} for p in (orders,items)])
         self.assertEqual(len(ds.items),1);self.assertEqual(self.report(ds)['merchandising']['current']['totals']['quantity'],2)
+
+    def test_french_timestamps_do_not_swap_month_and_day(self):
+        raw={'order day':'04/10/2026','order time':'10:00:00','Accepted at':'04/10/2026 10:05:00','picked up time':'10:25:00','delivered day':'04/10/2026','delivered at':'10:35:00'}
+        r={};derive(raw,r,norm,number);self.assertEqual(r['accept_min'],5);self.assertEqual(r['prep_min'],20);self.assertEqual(r['ctd_min'],35)

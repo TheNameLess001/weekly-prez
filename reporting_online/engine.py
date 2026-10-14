@@ -38,6 +38,8 @@ ALIASES = {
  'cancel_restaurant': ['cancel restaurant','canc resto','annulations restaurant'],
  'cancel_driver': ['cancel driver','canc livreur','annulations livreur'],
  'cancel_client': ['cancel client','canc client','annulations client'],
+ 'cancel_other': ['cancel other','annulations administration'],
+ 'cancel_unknown': ['cancel unknown','annulations acteur inconnu'],
  'cancel_actor': ['cancel actor','cancellation actor','annulation acteur','cancelled by'],
  'cancel_reason': ['cancel reason','cancellation reason','motif annulation','cancellation reason'],
  'accept_min': ['accept min','acceptance minutes','temps acceptation'],
@@ -415,12 +417,13 @@ def aggregate(ds,rid,interval):
         values['sla_rate']=sum(sla)/len(sla) if sla else None; samples['sla_rate']=len(sla)
         values['active_days']=len({r['start'] for r in delivered}) if None not in statuses else None
     if aggs:
-        for key in ('requests','delivered','gmv','ca','commission','commission_base','promo','benefit','cancelled','cancel_restaurant','cancel_driver','cancel_client','active_days'):
+        for key in ('requests','delivered','gmv','ca','commission','commission_base','promo','benefit','cancelled','cancel_restaurant','cancel_driver','cancel_client','cancel_other','cancel_unknown','active_days'):
             v=strict_sum(aggs,key)
             values[key]=(values[key]+v if values.get(key) is not None and v is not None else None) if orders else v
         # Unique users cannot be summed across intervals, even when disjoint.
         if not orders and len(aggs)==1:
             for key in ('users','delivered_users','new_users'): values[key]=aggs[0].get(key)
+            values['repeat_users']=aggs[0].get('repeat_users')
             values['repeat_share']=ratio(aggs[0].get('repeat_users'),aggs[0].get('delivered_users'))
         else:
             for key in ('users','delivered_users','new_users','repeat_share'): values[key]=None
