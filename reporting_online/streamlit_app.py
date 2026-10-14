@@ -31,7 +31,7 @@ def app_password():
     if value=='REMPLACER_PAR_UN_SECRET_LONG_UNIQUE':return ''
     return value
 
-APP_RELEASE='2026.10.14.1'
+APP_RELEASE='2026.10.14.2'
 st.caption('Version '+APP_RELEASE)
 password=app_password();protected=bool(password)
 if protected and not st.session_state.get('authenticated',False):
